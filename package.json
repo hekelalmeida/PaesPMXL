@@ -1,0 +1,11 @@
+{
+  "name": "carteira-paes-v4-online",
+  "version": "4.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@netlify/database": "^1.0.0",
+    "@netlify/functions": "^5.0.0",
+    "pg": "^8.13.1"
+  }
+}
