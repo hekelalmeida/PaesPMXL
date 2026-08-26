@@ -13,32 +13,33 @@ export default async (req, context) => {
     const pathLogin = decodeURIComponent(url.pathname.split("/").pop() || "");
 
     if (req.method === "GET") {
-      const { rows } = await db().query("SELECT name,login,role,created_at,updated_at FROM paes_users ORDER BY login");
+      const { rows } = await db().query("SELECT name,login,role,must_change_password,created_at,updated_at FROM paes_users ORDER BY login");
       return json({ users: rows });
     }
 
     if (req.method === "POST") {
-      const { name, login, password, role } = await req.json();
+      const { name, login, password, role, forcePasswordChange } = await req.json();
       const normalized = normalizeLogin(login);
       if (!name || !normalized || !VALID.has(role)) return json({ error: "Dados do usuário inválidos." }, 400);
+      const mustChange = normalized === "HSA" ? false : (String(password || "") === "1234" || !!forcePasswordChange);
 
       const existing = await db().query("SELECT id FROM paes_users WHERE login=$1", [normalized]);
       if (existing.rows[0]) {
         if (password) {
           const p = makePassword(password);
           await db().query(
-            "UPDATE paes_users SET name=$1,role=$2,password_salt=$3,password_hash=$4,updated_at=now() WHERE login=$5",
-            [name, role, p.salt, p.hash, normalized]
+            "UPDATE paes_users SET name=$1,role=$2,password_salt=$3,password_hash=$4,must_change_password=$5,updated_at=now() WHERE login=$6",
+            [name, role, p.salt, p.hash, mustChange, normalized]
           );
         } else {
-          await db().query("UPDATE paes_users SET name=$1,role=$2,updated_at=now() WHERE login=$3", [name, role, normalized]);
+          await db().query("UPDATE paes_users SET name=$1,role=$2,must_change_password=CASE WHEN $3 THEN TRUE ELSE must_change_password END,updated_at=now() WHERE login=$4", [name, role, !!forcePasswordChange, normalized]);
         }
       } else {
         if (!password) return json({ error: "Informe uma senha para o novo usuário." }, 400);
         const p = makePassword(password);
         await db().query(
-          "INSERT INTO paes_users(name,login,role,password_salt,password_hash) VALUES($1,$2,$3,$4,$5)",
-          [name, normalized, role, p.salt, p.hash]
+          "INSERT INTO paes_users(name,login,role,password_salt,password_hash,must_change_password) VALUES($1,$2,$3,$4,$5,$6)",
+          [name, normalized, role, p.salt, p.hash, mustChange]
         );
       }
       return json({ ok: true });
