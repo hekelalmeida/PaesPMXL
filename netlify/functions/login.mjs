@@ -19,8 +19,8 @@ export default async (req) => {
 
       const p = makePassword(password);
       const created = await db().query(
-        `INSERT INTO paes_users(name,login,role,password_salt,password_hash)
-         VALUES('HEKEL SOARES DE ALMEIDA','HSA','developer',$1,$2)
+        `INSERT INTO paes_users(name,login,role,password_salt,password_hash,must_change_password)
+         VALUES('HEKEL SOARES DE ALMEIDA','HSA','developer',$1,$2,FALSE)
          RETURNING *`,
         [p.salt, p.hash]
       );
@@ -34,7 +34,7 @@ export default async (req) => {
     const token = await createSession(user.id);
     return json({
       token,
-      user: { name: user.name, login: user.login, role: user.role }
+      user: { name: user.name, login: user.login, role: user.role, mustChangePassword: !!user.must_change_password }
     });
   } catch (e) {
     console.error(e);
