@@ -754,7 +754,7 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:16px}
       <div><label>Nome</label><input id="devName" placeholder="Nome do usuário"></div>
       <div><label>Login</label><input id="devLogin" placeholder="Login"></div>
       <div><label>Senha</label><input id="devPassword" type="password" placeholder="Senha"></div>
-      <div><label>Tipo de acesso</label><select id="devRole"><option value="bordo">Edição Bordo</option><option value="pmb">Edição PMB</option><option value="view">Visualização</option></select></div>
+      <div><label>Tipo de acesso</label><select id="devRole"><option value="bordo">Edição Bordo</option><option value="pmb">Edição PMB</option><option value="view">Visualização</option></select></div><div><label style="display:flex;align-items:center;gap:7px;margin-top:20px"><input id="devForcePasswordChange" type="checkbox" checked style="width:auto"> Exigir troca de senha no próximo login</label></div>
       <div><button class="savebtn" onclick="saveManagedUser()">Salvar usuário</button></div>
     </div>
   </div>
@@ -815,6 +815,21 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:16px}
   </div>
 </div>
 
+
+<div class="modal open" id="forcePasswordModal" style="display:none;z-index:10000;background:rgba(0,0,0,.68)">
+  <div class="box" style="width:min(500px,96vw)">
+    <div class="boxhead"><strong>Troca obrigatória de senha</strong></div>
+    <div class="boxbody">
+      <p style="font-size:12px;color:var(--muted);margin-top:0">Sua senha atual é temporária. Defina uma nova senha para continuar usando a Carteira PAES.</p>
+      <div class="details" style="grid-template-columns:1fr">
+        <div class="detail"><small>Nova senha</small><input id="newPassword1" class="edit-field" type="password" autocomplete="new-password" placeholder="Mínimo de 6 caracteres"></div>
+        <div class="detail"><small>Confirmar nova senha</small><input id="newPassword2" class="edit-field" type="password" autocomplete="new-password" placeholder="Digite novamente"></div>
+      </div>
+      <div id="passwordChangeError" class="login-error"></div>
+      <div class="modal-actions"><button class="savebtn" onclick="submitForcedPasswordChange()">Alterar senha e continuar</button></div>
+    </div>
+  </div>
+</div>
 <footer>Carteira PAES PMXL • 2026 • Criado por HSA</footer>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -989,7 +1004,7 @@ async function saveManagedUser(){
 function editManagedUser(login){
  if(!requireDeveloper())return;
  const u=getManagedUsers().find(x=>x.login===login);if(!u)return;
- $('devName').value=u.name;$('devLogin').value=u.login;$('devPassword').value='';$('devRole').value=u.role;
+ $('devName').value=u.name;$('devLogin').value=u.login;$('devPassword').value='';$('devRole').value=u.role;if($('devForcePasswordChange'))$('devForcePasswordChange').checked=!!u.must_change_password;
  showTab('desenvolvedor');
 }
 function deleteManagedUser(login){
@@ -1004,7 +1019,7 @@ function renderManagedUsers(){
  const users=getManagedUsers();
  if(count)count.textContent=(users.length+1)+' usuário(s)';
  const fixed=`<tr><td>HSA</td><td>HSA</td><td><span class="access-pill">Desenvolvedor</span></td><td>Usuário principal</td></tr>`;
- body.innerHTML=fixed+users.map(u=>`<tr><td>${escapeHtml(u.name)}</td><td>${escapeHtml(u.login)}</td><td><span class="access-pill">${escapeHtml(accessRoleLabel(u.role))}</span></td><td><button class="light" onclick="editManagedUser('${escapeJs(u.login)}')">Editar</button> <button class="delete-service-btn" onclick="deleteManagedUser('${escapeJs(u.login)}')">Excluir</button></td></tr>`).join('');
+ body.innerHTML=fixed+users.map(u=>`<tr><td>${escapeHtml(u.name)}</td><td>${escapeHtml(u.login)}</td><td><span class="access-pill">${escapeHtml(accessRoleLabel(u.role))}</span>${u.must_change_password?' <span class="access-pill" style="background:#fff0ca;color:#835700">Troca pendente</span>':''}</td><td><button class="light" onclick="editManagedUser('${escapeJs(u.login)}')">Editar</button> <button class="delete-service-btn" onclick="deleteManagedUser('${escapeJs(u.login)}')">Excluir</button></td></tr>`).join('');
 }
 
 const clean=v=>String(v??'').trim();
@@ -2660,20 +2675,40 @@ const ONLINE={
 function setOnlineStatus(text,kind='ok'){
  const el=$('onlineStatusBadge');if(!el)return;
  el.style.display='inline-flex';
-
- const revMatch=String(text).match(/^Online\s*•\s*rev\.\s*(\d+)/i);
-
- if(revMatch){
-   el.textContent='Online';
-   el.title=`Revisão online: ${revMatch[1]}`;
- }else{
-   el.textContent=text;
-   el.title='';
- }
-
+ el.textContent=text;
  el.classList.remove('online-ok','online-warn','online-bad');
  el.classList.add(kind==='ok'?'online-ok':kind==='warn'?'online-warn':'online-bad');
 }
+
+function showForcedPasswordChange(){
+ const modal=$('forcePasswordModal');if(!modal)return;
+ $('newPassword1').value='';$('newPassword2').value='';$('passwordChangeError').textContent='';
+ modal.style.display='flex';document.body.style.overflow='hidden';
+ setTimeout(()=>$('newPassword1')?.focus(),50);
+}
+function hideForcedPasswordChange(){
+ const modal=$('forcePasswordModal');if(!modal)return;
+ modal.style.display='none';document.body.style.overflow='';
+}
+async function submitForcedPasswordChange(){
+ const p1=String($('newPassword1')?.value||'');
+ const p2=String($('newPassword2')?.value||'');
+ const err=$('passwordChangeError');err.textContent='';
+ if(p1.length<6){err.textContent='A nova senha deve ter pelo menos 6 caracteres.';return}
+ if(p1==='1234'){err.textContent='A nova senha não pode ser 1234.';return}
+ if(p1!==p2){err.textContent='As senhas não conferem.';return}
+ try{
+   await apiRequest('change-password',{method:'POST',body:JSON.stringify({newPassword:p1})});
+   currentAccessUser={...currentAccessUser,mustChangePassword:false};
+   sessionStorage.setItem('paes_current_access',JSON.stringify(currentAccessUser));
+   hideForcedPasswordChange();
+   await fetchOnlineState();
+   if(isDeveloper())await refreshOnlineUsers();
+   startOnlinePolling();
+   alert('Senha alterada com sucesso.');
+ }catch(e){err.textContent=e.message||'Falha ao alterar a senha.'}
+}
+
 async function apiRequest(path,options={}){
  const headers={...(options.headers||{})};
  if(options.body&&!headers['Content-Type'])headers['Content-Type']='application/json';
@@ -2798,6 +2833,7 @@ performLogin=async function(){
    $('currentUserBadge').style.display='inline-flex';
    $('currentUserBadge').textContent=`${currentAccessUser.name||currentAccessUser.login} • ${accessRoleLabel(currentAccessUser.role)}`;
    applyAccessUI();
+   if(currentAccessUser.mustChangePassword){showForcedPasswordChange();return;}
    await fetchOnlineState();
    if(isDeveloper())await refreshOnlineUsers();
    startOnlinePolling();
@@ -2815,6 +2851,7 @@ restoreLoginSession=function(){
    $('currentUserBadge').style.display='inline-flex';
    $('currentUserBadge').textContent=`${currentAccessUser.name||currentAccessUser.login} • ${accessRoleLabel(currentAccessUser.role)}`;
    applyAccessUI();
+   if(currentAccessUser.mustChangePassword){showForcedPasswordChange();return true;}
    fetchOnlineState().then(()=>{if(isDeveloper())refreshOnlineUsers()}).catch(()=>logoutUser());
    startOnlinePolling();
    return true;
@@ -2848,24 +2885,25 @@ renderManagedUsers=function(){
  if(count)count.textContent=users.length+' usuário(s)';
  body.innerHTML=users.map(u=>`<tr>
    <td>${escapeHtml(u.name)}</td><td>${escapeHtml(u.login)}</td>
-   <td><span class="access-pill">${escapeHtml(accessRoleLabel(u.role))}</span></td>
+   <td><span class="access-pill">${escapeHtml(accessRoleLabel(u.role))}</span>${u.must_change_password?' <span class="access-pill" style="background:#fff0ca;color:#835700">Troca pendente</span>':''}</td>
    <td>${upper(u.login)==='HSA'?'Usuário principal':`<button class="light" onclick="editManagedUser('${escapeJs(u.login)}')">Editar</button> <button class="delete-service-btn" onclick="deleteManagedUser('${escapeJs(u.login)}')">Excluir</button>`}</td>
  </tr>`).join('');
 };
 saveManagedUser=async function(){
  if(!requireDeveloper())return;
  const name=clean($('devName').value),login=clean($('devLogin').value),password=$('devPassword').value,role=$('devRole').value;
+ const forcePasswordChange=!!$('devForcePasswordChange')?.checked;
  if(!name||!login){alert('Informe nome e login.');return}
  try{
-   await apiRequest('users',{method:'POST',body:JSON.stringify({name,login,password,role})});
-   $('devName').value='';$('devLogin').value='';$('devPassword').value='';$('devRole').value='bordo';
+   await apiRequest('users',{method:'POST',body:JSON.stringify({name,login,password,role,forcePasswordChange})});
+   $('devName').value='';$('devLogin').value='';$('devPassword').value='';$('devRole').value='bordo';if($('devForcePasswordChange'))$('devForcePasswordChange').checked=true;
    await refreshOnlineUsers();
  }catch(e){alert(e.message)}
 };
 editManagedUser=function(login){
  if(!requireDeveloper())return;
  const u=(ONLINE.users||[]).find(x=>upper(x.login)===upper(login));if(!u)return;
- $('devName').value=u.name;$('devLogin').value=u.login;$('devPassword').value='';$('devRole').value=u.role;
+ $('devName').value=u.name;$('devLogin').value=u.login;$('devPassword').value='';$('devRole').value=u.role;if($('devForcePasswordChange'))$('devForcePasswordChange').checked=!!u.must_change_password;
  showTab('desenvolvedor');
 };
 deleteManagedUser=async function(login){
