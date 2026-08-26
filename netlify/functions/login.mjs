@@ -20,7 +20,7 @@ export default async (req) => {
       const p = makePassword(password);
       const created = await db().query(
         `INSERT INTO paes_users(name,login,role,password_salt,password_hash)
-         VALUES('HSA','HSA','developer',$1,$2)
+         VALUES('HEKEL SOARES DE ALMEIDA','HSA','developer',$1,$2)
          RETURNING *`,
         [p.salt, p.hash]
       );
