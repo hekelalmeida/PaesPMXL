@@ -2660,7 +2660,17 @@ const ONLINE={
 function setOnlineStatus(text,kind='ok'){
  const el=$('onlineStatusBadge');if(!el)return;
  el.style.display='inline-flex';
- el.textContent=text;
+
+ const revMatch=String(text).match(/^Online\s*•\s*rev\.\s*(\d+)/i);
+
+ if(revMatch){
+   el.textContent='Online';
+   el.title=`Revisão online: ${revMatch[1]}`;
+ }else{
+   el.textContent=text;
+   el.title='';
+ }
+
  el.classList.remove('online-ok','online-warn','online-bad');
  el.classList.add(kind==='ok'?'online-ok':kind==='warn'?'online-warn':'online-bad');
 }
