@@ -38,7 +38,7 @@ export async function auth(req) {
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
   if (!token) return null;
   const { rows } = await db().query(
-    `SELECT u.id,u.name,u.login,u.role,s.expires_at
+    `SELECT u.id,u.name,u.login,u.role,u.must_change_password,s.expires_at
      FROM paes_sessions s JOIN paes_users u ON u.id=s.user_id
      WHERE s.token_hash=$1 AND s.expires_at>now()`,
     [tokenHash(token)]
