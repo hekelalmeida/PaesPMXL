@@ -1,4 +1,4 @@
-# Carteira PAES V4.0 Online
+# Carteira PAES V4.1 Online
 
 Esta versão transforma a Carteira PAES em uma aplicação compartilhada no Netlify.
 
@@ -98,3 +98,16 @@ Antes de liberar aos demais usuários:
 5. Confirma que a alteração aparece em até ~15 segundos.
 6. Cria um usuário Bordo e outro PMB e testa as permissões.
 7. Na página Functions do Netlify, abra `archive-flags` e use **Run now** uma vez para validar o arquivamento sem esperar meia-noite.
+
+
+## Correção V4.1
+
+Corrigida a rota de usuários para atender tanto `/api/users` (listar/criar) quanto `/api/users/*` (excluir).
+
+
+## V4.1 — Troca obrigatória de senha
+
+- Senha 1234 é tratada como temporária para usuários comuns.
+- Opção para forçar troca no próximo login.
+- Nova senha deve ter no mínimo 6 caracteres e não pode ser 1234.
+- Migration 002 adiciona must_change_password.
