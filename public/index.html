@@ -450,7 +450,7 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:16px}
 
 <header>
 <div class="brand"><div class="logo">PMXL</div><div><h1>Carteira PAES</h1><div class="sub" id="periodo"></div></div></div>
-<div class="actions"><span id="onlineStatusBadge" class="user-badge" style="display:none">Online</span><span id="currentUserBadge" class="user-badge" style="display:none"></span>
+<div class="actions"><span id="onlineStatusBadge" class="user-badge" style="display:none">Online</span><span id="currentUserBadge" class="user-badge" style="display:none"></span><button id="manualRefreshBtn" class="light" style="display:none" onclick="refreshOnlineDataManual()">↻ Atualizar dados</button>
 <button class="light edit-only" onclick="savePaesBackup()">Salvar PAES</button>
 <label class="filebtn ghost edit-only" for="restoreFile">Restaurar</label><input id="restoreFile" type="file" accept=".json,.paes">
 <button class="ghost edit-only" onclick="clearPaesData()">Limpar PAES</button>
@@ -893,6 +893,7 @@ function canEditBreakCarteira(){
  return !!currentAccessUser&&['developer','bordo'].includes(currentAccessUser.role);
 }
 
+
 const breakLabels={carteira:'Carteira / Semana',idQuebra:'ID da quebra',solicitanteQuebra:'Solicitante quebra',motivoQuebra:'Motivo da quebra de carteira',tipo:'Tipo de manutenção',area:'Área responsável',local:'Local instalação',plano:'Plano de manutenção',nota:'Nota',ordem:'Ordem',operacao:'Operação',texto:'Texto breve',if:'IF',centro:'Centro trabalho',hh:'HH previsto',aplat:'APLAT',data:'Data prevista',dataFim:'Data fim',status:'Status do serviço',justificativa:'Justificativa',comentarioPMB:'Comentários PMB'};
 
 const additionalLabels={
@@ -962,7 +963,7 @@ async function performLogin(){
 function finishLogin(){
  sessionStorage.setItem('paes_current_access',JSON.stringify(currentAccessUser));
  $('loginScreen').classList.add('hidden');
- $('currentUserBadge').style.display='inline-flex';
+ $('currentUserBadge').style.display='inline-flex';if($('manualRefreshBtn'))$('manualRefreshBtn').style.display='inline-flex';
  $('currentUserBadge').textContent=`${currentAccessUser.name||currentAccessUser.login} • ${accessRoleLabel(currentAccessUser.role)}`;
  applyAccessUI();
  renderManagedUsers();
@@ -1702,7 +1703,7 @@ function allEditableControl(k,r){
  if(k==='data')return `<select class="edit-field" data-edit="data">${weekDateOptions(v)}</select>`;
  if(k==='dataFim')return `<select class="edit-field" data-edit="dataFim">${weekDateOptions(v)}</select>`;
  if(k==='status')return selectHtml('status',canonicalStatus(v),['Em andamento','Executado Final - (OPERAÇÃO LIB CONF)','Executado PAES anterior','Executado Parcial - (JUSTIFICAR)','Não Executado - (JUSTIFICAR)']);
- if(k==='justificativa')return selectHtml('justificativa',canonicalJustificativa(v),['APOIO EPIM (FENG)','ATIVIDADE CONTINUADA','ATIVIDADE PRECEDENTE','CONDIÇÕES CLIMÁTICAS','FALTA ANDAIME','FALTA MÃO DE OBRA / HH REDUZIDO','FALTA DE MATERIAL','FALTA FERRAMENTA','FALTA LIBERAÇÃO DA PRODUÇÃO','LIBRA','MATERIAL INADEQUADO','NECESSIDADE DE APOIO DE OUTRA ESPECIALIDADE','NECESSIDADE DE READEQUAÇÃO DO PLANEJAMENTO','QUEBRA DE CARTEIRA','SIMULTANEIDADE','SERVIÇO DE OUTRA GERÊNCIA','SEM NECESSIDADE OPERACIONAL']);
+ if(k==='justificativa')return selectHtml('justificativa',canonicalJustificativa(v),['APOIO EPIM (FENG)','ATIVIDADE CONTINUADA','ATIVIDADES PRECEDENTE','CONDIÇÕES CLIMÁTICAS','FALTA ANDAIME','FALTA MÃO DE OBRA / HH REDUZIDO','FALTA DE MATERIAL','FALTA FERRAMENTA','FALTA LIBERAÇÃO DA PRODUÇÃO','LIBRA','MATERIAL INADEQUADO','NECESSIDADE DE APOIO DE OUTRA ESPECIALIDADE','NECESSIDADE DE READEQUAÇÃO DO PLANEJAMENTO','QUEBRA DE CARTEIRA','SIMULTANEIDADE','SERVIÇO DE OUTRA GERÊNCIA','SEM NECESSIDADE OPERACIONAL']);
  if(k==='reprogramar')return `<select class="edit-field" data-edit="reprogramar" onchange="togglePaesField(this.value)">
    <option value="">-</option><option ${upper(v)==='NÃO'||upper(v)==='NAO'?'selected':''}>NÃO</option><option ${upper(v)==='SIM'?'selected':''}>SIM</option>
  </select>`;
@@ -1998,7 +1999,7 @@ function additionalEditableControl(k,r){
  if(k==='data')return `<select class="edit-field" data-additional-edit="data">${weekDateOptions(v)}</select>`;
  if(k==='dataFim')return `<select class="edit-field" data-additional-edit="dataFim">${weekDateOptions(v)}</select>`;
  if(k==='status')return selectHtml(k,canonicalStatus(v),['Em andamento','Executado Final - (OPERAÇÃO LIB CONF)','Executado PAES anterior','Executado Parcial - (JUSTIFICAR)','Não Executado - (JUSTIFICAR)']).replaceAll('data-edit=','data-additional-edit=');
- if(k==='justificativa')return selectHtml(k,canonicalJustificativa(v),['APOIO EPIM (FENG)','ATIVIDADE CONTINUADA','ATIVIDADE PRECEDENTE','CONDIÇÕES CLIMÁTICAS','FALTA ANDAIME','FALTA MÃO DE OBRA / HH REDUZIDO','FALTA DE MATERIAL','FALTA FERRAMENTA','FALTA LIBERAÇÃO DA PRODUÇÃO','LIBRA','MATERIAL INADEQUADO','NECESSIDADE DE APOIO DE OUTRA ESPECIALIDADE','NECESSIDADE DE READEQUAÇÃO DO PLANEJAMENTO','QUEBRA DE CARTEIRA','SIMULTANEIDADE','SERVIÇO DE OUTRA GERÊNCIA','SEM NECESSIDADE OPERACIONAL']).replaceAll('data-edit=','data-additional-edit=');
+ if(k==='justificativa')return selectHtml(k,canonicalJustificativa(v),['APOIO EPIM (FENG)','ATIVIDADE CONTINUADA','ATIVIDADES PRECEDENTE','CONDIÇÕES CLIMÁTICAS','FALTA ANDAIME','FALTA MÃO DE OBRA / HH REDUZIDO','FALTA DE MATERIAL','FALTA FERRAMENTA','FALTA LIBERAÇÃO DA PRODUÇÃO','LIBRA','MATERIAL INADEQUADO','NECESSIDADE DE APOIO DE OUTRA ESPECIALIDADE','NECESSIDADE DE READEQUAÇÃO DO PLANEJAMENTO','QUEBRA DE CARTEIRA','SIMULTANEIDADE','SERVIÇO DE OUTRA GERÊNCIA','SEM NECESSIDADE OPERACIONAL']).replaceAll('data-edit=','data-additional-edit=');
  if(k==='reprogramar')return `<select class="edit-field" data-additional-edit="reprogramar">
    <option value="">-</option><option ${['NÃO','NAO'].includes(upper(v))?'selected':''}>NÃO</option><option ${upper(v)==='SIM'?'selected':''}>SIM</option>
  </select>`;
@@ -2109,7 +2110,7 @@ function breakEditableControl(k,r){
  if(k==='data')return `<select class="edit-field" data-break-edit="data">${weekDateOptions(v)}</select>`;
  if(k==='dataFim')return `<select class="edit-field" data-break-edit="dataFim">${weekDateOptions(v)}</select>`;
  if(k==='status')return selectHtml(k,canonicalStatus(v),['Em andamento','Executado Final - (OPERAÇÃO LIB CONF)','Executado PAES anterior','Executado Parcial - (JUSTIFICAR)','Não Executado - (JUSTIFICAR)']).replaceAll('data-edit=','data-break-edit=');
- if(k==='justificativa')return selectHtml(k,canonicalJustificativa(v),['APOIO EPIM (FENG)','ATIVIDADE CONTINUADA','ATIVIDADE PRECEDENTE','CONDIÇÕES CLIMÁTICAS','FALTA ANDAIME','FALTA MÃO DE OBRA / HH REDUZIDO','FALTA DE MATERIAL','FALTA FERRAMENTA','FALTA LIBERAÇÃO DA PRODUÇÃO','LIBRA','MATERIAL INADEQUADO','NECESSIDADE DE APOIO DE OUTRA ESPECIALIDADE','NECESSIDADE DE READEQUAÇÃO DO PLANEJAMENTO','QUEBRA DE CARTEIRA','SIMULTANEIDADE','SERVIÇO DE OUTRA GERÊNCIA','SEM NECESSIDADE OPERACIONAL']).replaceAll('data-edit=','data-break-edit=');
+ if(k==='justificativa')return selectHtml(k,canonicalJustificativa(v),['APOIO EPIM (FENG)','ATIVIDADE CONTINUADA','ATIVIDADES PRECEDENTE','CONDIÇÕES CLIMÁTICAS','FALTA ANDAIME','FALTA MÃO DE OBRA / HH REDUZIDO','FALTA DE MATERIAL','FALTA FERRAMENTA','FALTA LIBERAÇÃO DA PRODUÇÃO','LIBRA','MATERIAL INADEQUADO','NECESSIDADE DE APOIO DE OUTRA ESPECIALIDADE','NECESSIDADE DE READEQUAÇÃO DO PLANEJAMENTO','QUEBRA DE CARTEIRA','SIMULTANEIDADE','SERVIÇO DE OUTRA GERÊNCIA','SEM NECESSIDADE OPERACIONAL']).replaceAll('data-edit=','data-break-edit=');
  if(k==='hh')return `<input class="edit-field" type="number" step="0.1" data-break-edit="${k}" value="${escapeHtml(v)}">`;
  if(k==='comentarioPMB'||k==='texto')return `<textarea class="edit-field" data-break-edit="${k}">${escapeHtml(v)}</textarea>`;
  return `<input class="edit-field" type="text" data-break-edit="${k}" value="${escapeHtml(v)}">`;
@@ -2134,27 +2135,19 @@ function openNewBreakService(){
 }
 function saveBreakService(){
  if(editingBreakIndex===null)return;
-
  if(editingBreakIndex===-1){
    if(!requirePaesEdit())return;
  }else if(!canEditBreakCarteira()){
    alert('A edição de serviços da Quebra de Carteira é permitida apenas para Edição Bordo e Desenvolvedor.');
    return;
  }
-
  let r;
-
  if(editingBreakIndex===-1){
-   r={};
-   Object.keys(breakLabels).forEach(k=>r[k]='');
+   r={};Object.keys(breakLabels).forEach(k=>r[k]='');
  }else{
    r=breakData[editingBreakIndex];
  }
-
- document.querySelectorAll('[data-break-edit]').forEach(el=>{
-   r[el.dataset.breakEdit]=el.value;
- });
-
+ document.querySelectorAll('[data-break-edit]').forEach(el=>r[el.dataset.breakEdit]=el.value);
  r.data=formatDateBR(r.data);
  r.dataFim=formatDateBR(r.dataFim);
  r.hh=parseFloat(String(r.hh).replace(',','.'))||0;
@@ -2169,30 +2162,19 @@ function saveBreakService(){
 
 function openBreakRow(i){
  if(breakDeletionMode)return;
-
  editingBreakIndex=i;
  const r=breakData[i];
  const canEdit=canEditBreakCarteira();
 
- $('breakModalTitle').textContent=canEdit
-   ?'Editar Serviço - Quebra de Carteira'
-   :'Detalhes da Quebra de Carteira';
+ $('breakModalTitle').textContent=canEdit?'Editar Serviço - Quebra de Carteira':'Detalhes da Quebra de Carteira';
 
  $('breakDetails').innerHTML=Object.entries(breakLabels)
    .filter(([k])=>k!=='idQuebra')
    .map(([k,l])=>{
      const body=canEdit
        ?breakEditableControl(k,r)
-       :`<strong>${escapeHtml(
-          (k==='data'||k==='dataFim')
-            ?formatDateBR(r[k])||'-'
-            :clean(r[k])||'-'
-        )}</strong>`;
-
-     return `<div class="detail">
-       <small>${escapeHtml(l)}</small>
-       ${body}
-     </div>`;
+       :`<strong>${escapeHtml((k==='data'||k==='dataFim')?formatDateBR(r[k])||'-':clean(r[k])||'-')}</strong>`;
+     return `<div class="detail"><small>${escapeHtml(l)}</small>${body}</div>`;
    }).join('');
 
  $('breakModalActions').style.display=canEdit?'flex':'none';
@@ -2711,7 +2693,16 @@ const ONLINE={
 function setOnlineStatus(text,kind='ok'){
  const el=$('onlineStatusBadge');if(!el)return;
  el.style.display='inline-flex';
- el.textContent=text;
+
+ const revMatch=String(text).match(/^Online\s*•\s*rev\.\s*(\d+)/i);
+ if(revMatch){
+   el.textContent='Online';
+   el.title=`Revisão online: ${revMatch[1]}`;
+ }else{
+   el.textContent=text;
+   el.title='';
+ }
+
  el.classList.remove('online-ok','online-warn','online-bad');
  el.classList.add(kind==='ok'?'online-ok':kind==='warn'?'online-warn':'online-bad');
 }
@@ -2824,25 +2815,30 @@ function queueOnlinePush(){
  clearTimeout(ONLINE.pushTimer);
  ONLINE.pushTimer=setTimeout(pushOnlineState,700);
 }
-async function pollOnlineRevision(){
- if(!ONLINE.token||document.hidden)return;
+async function refreshOnlineDataManual(){
+ if(!ONLINE.token)return;
  try{
+   setOnlineStatus('Atualizando...','warn');
    const p=await apiRequest('revision');
    const rev=Number(p.revision||0);
+
    if(rev>ONLINE.revision){
-     setOnlineStatus('Atualizando...','warn');
      await fetchOnlineState();
+     alert('Dados atualizados com sucesso.');
+   }else{
+     setOnlineStatus(`Online • rev. ${ONLINE.revision}`,'ok');
+     alert('Nenhuma atualização disponível.');
    }
  }catch(err){
    if(err.status===401){logoutUser();return}
    setOnlineStatus('Sem conexão','bad');
+   alert(err.message||'Não foi possível atualizar os dados.');
  }
 }
 function startOnlinePolling(){
  clearInterval(ONLINE.pollTimer);
- ONLINE.pollTimer=setInterval(pollOnlineRevision,15000);
+ ONLINE.pollTimer=null;
 }
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollOnlineRevision()});
 
 // Wrap local persistence: keep local cache + push shared state.
 const _localSaveActivePaesState=saveActivePaesState;
@@ -2866,7 +2862,7 @@ performLogin=async function(){
    currentAccessUser=p.user;
    sessionStorage.setItem('paes_current_access',JSON.stringify(currentAccessUser));
    $('loginScreen').classList.add('hidden');
-   $('currentUserBadge').style.display='inline-flex';
+   $('currentUserBadge').style.display='inline-flex';if($('manualRefreshBtn'))$('manualRefreshBtn').style.display='inline-flex';
    $('currentUserBadge').textContent=`${currentAccessUser.name||currentAccessUser.login} • ${accessRoleLabel(currentAccessUser.role)}`;
    applyAccessUI();
    if(currentAccessUser.mustChangePassword){showForcedPasswordChange();return;}
@@ -2884,7 +2880,7 @@ restoreLoginSession=function(){
  try{
    currentAccessUser=JSON.parse(raw);
    $('loginScreen').classList.add('hidden');
-   $('currentUserBadge').style.display='inline-flex';
+   $('currentUserBadge').style.display='inline-flex';if($('manualRefreshBtn'))$('manualRefreshBtn').style.display='inline-flex';
    $('currentUserBadge').textContent=`${currentAccessUser.name||currentAccessUser.login} • ${accessRoleLabel(currentAccessUser.role)}`;
    applyAccessUI();
    if(currentAccessUser.mustChangePassword){showForcedPasswordChange();return true;}
@@ -2900,7 +2896,7 @@ logoutUser=function(){
  sessionStorage.removeItem('paes_online_revision');
  sessionStorage.removeItem('paes_current_access');
  $('loginUser').value='';$('loginPass').value='';$('loginError').textContent='';
- $('currentUserBadge').style.display='none';
+ $('currentUserBadge').style.display='none';if($('manualRefreshBtn'))$('manualRefreshBtn').style.display='none';
  setOnlineStatus('Desconectado','warn');
  $('loginScreen').classList.remove('hidden');
 };
