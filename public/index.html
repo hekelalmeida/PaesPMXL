@@ -889,6 +889,9 @@ function canEditMainField(k){
  if(currentAccessUser?.role==='pmb')return (!ORIGINAL_EDIT_FIELDS.has(k))||PMB_EDIT_FIELDS.has(k);
  return false;
 }
+function canEditBreakCarteira(){
+ return !!currentAccessUser&&['developer','bordo'].includes(currentAccessUser.role);
+}
 
 const breakLabels={carteira:'Carteira / Semana',idQuebra:'ID da quebra',solicitanteQuebra:'Solicitante quebra',motivoQuebra:'Motivo da quebra de carteira',tipo:'Tipo de manutenção',area:'Área responsável',local:'Local instalação',plano:'Plano de manutenção',nota:'Nota',ordem:'Ordem',operacao:'Operação',texto:'Texto breve',if:'IF',centro:'Centro trabalho',hh:'HH previsto',aplat:'APLAT',data:'Data prevista',dataFim:'Data fim',status:'Status do serviço',justificativa:'Justificativa',comentarioPMB:'Comentários PMB'};
 
@@ -2130,15 +2133,28 @@ function openNewBreakService(){
  $('breakModal').classList.add('open');
 }
 function saveBreakService(){
- if(!requirePaesEdit())return;
  if(editingBreakIndex===null)return;
- let r;
+
  if(editingBreakIndex===-1){
-   r={};Object.keys(breakLabels).forEach(k=>r[k]='');
+   if(!requirePaesEdit())return;
+ }else if(!canEditBreakCarteira()){
+   alert('A edição de serviços da Quebra de Carteira é permitida apenas para Edição Bordo e Desenvolvedor.');
+   return;
+ }
+
+ let r;
+
+ if(editingBreakIndex===-1){
+   r={};
+   Object.keys(breakLabels).forEach(k=>r[k]='');
  }else{
    r=breakData[editingBreakIndex];
  }
- document.querySelectorAll('[data-break-edit]').forEach(el=>r[el.dataset.breakEdit]=el.value);
+
+ document.querySelectorAll('[data-break-edit]').forEach(el=>{
+   r[el.dataset.breakEdit]=el.value;
+ });
+
  r.data=formatDateBR(r.data);
  r.dataFim=formatDateBR(r.dataFim);
  r.hh=parseFloat(String(r.hh).replace(',','.'))||0;
@@ -2153,13 +2169,33 @@ function saveBreakService(){
 
 function openBreakRow(i){
  if(breakDeletionMode)return;
+
  editingBreakIndex=i;
  const r=breakData[i];
- $('breakModalTitle').textContent='Detalhes da Quebra de Carteira';
+ const canEdit=canEditBreakCarteira();
+
+ $('breakModalTitle').textContent=canEdit
+   ?'Editar Serviço - Quebra de Carteira'
+   :'Detalhes da Quebra de Carteira';
+
  $('breakDetails').innerHTML=Object.entries(breakLabels)
    .filter(([k])=>k!=='idQuebra')
-   .map(([k,l])=>`<div class="detail"><small>${escapeHtml(l)}</small><strong>${escapeHtml((k==='data'||k==='dataFim')?formatDateBR(r[k])||'-':clean(r[k])||'-')}</strong></div>`).join('');
- $('breakModalActions').style.display='none';
+   .map(([k,l])=>{
+     const body=canEdit
+       ?breakEditableControl(k,r)
+       :`<strong>${escapeHtml(
+          (k==='data'||k==='dataFim')
+            ?formatDateBR(r[k])||'-'
+            :clean(r[k])||'-'
+        )}</strong>`;
+
+     return `<div class="detail">
+       <small>${escapeHtml(l)}</small>
+       ${body}
+     </div>`;
+   }).join('');
+
+ $('breakModalActions').style.display=canEdit?'flex':'none';
  $('breakModal').classList.add('open');
 }
 function closeBreakModal(){editingBreakIndex=null;$('breakModal').classList.remove('open')}
