@@ -32,9 +32,19 @@ export default async (req) => {
     }
 
     const token = await createSession(user.id);
+
+    // A autenticação já acordou o banco. Aproveitamos a mesma execução para
+    // retornar somente metadados leves da PAES vigente, sem baixar a carteira.
+    const meta = await db().query(
+      "SELECT revision, state->>'currentWeek' AS current_week FROM paes_state WHERE id=1"
+    );
+    const current = meta.rows[0] || {};
+
     return json({
       token,
-      user: { name: user.name, login: user.login, role: user.role, mustChangePassword: !!user.must_change_password }
+      user: { name: user.name, login: user.login, role: user.role, mustChangePassword: !!user.must_change_password },
+      revision: Number(current.revision || 0),
+      currentWeek: current.current_week || ""
     });
   } catch (e) {
     console.error(e);
