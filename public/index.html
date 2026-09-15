@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
@@ -450,7 +450,7 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:16px}
 
 <header>
 <div class="brand"><div class="logo">PMXL</div><div><h1>Carteira PAES</h1><div class="sub" id="periodo"></div></div></div>
-<div class="actions"><span id="onlineStatusBadge" class="user-badge" style="display:none">Online</span><span id="currentUserBadge" class="user-badge" style="display:none"></span><button id="manualRefreshBtn" class="light" style="display:none" onclick="refreshOnlineDataManual()">↻ Atualizar dados</button>
+<div class="actions"><span id="onlineStatusBadge" class="user-badge" style="display:none">Online</span><span id="currentUserBadge" class="user-badge" style="display:none"></span><button id="manualRefreshBtn" class="light" style="display:none" onclick="refreshOnlineDataManual()">↻ Atualizar dados</button><span id="viewerSyncInfo" style="display:none;font-size:10px;color:var(--muted);margin-left:6px"></span>
 <button class="light edit-only" onclick="savePaesBackup()">Salvar PAES</button>
 <label class="filebtn ghost edit-only" for="restoreFile">Restaurar</label><input id="restoreFile" type="file" accept=".json,.paes">
 <button class="ghost edit-only" onclick="clearPaesData()">Limpar PAES</button>
@@ -460,6 +460,10 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:16px}
 <button class="logout-btn" onclick="logoutUser()">Sair</button>
 </div>
 </header>
+<div id="historicalModeBanner" style="display:none;margin:10px 18px;padding:12px 14px;border-radius:10px;background:#fff3cd;border:1px solid #e6c766;color:#6d5200;font-size:12px;font-weight:700">
+  <span id="historicalModeText">🔒 HISTÓRICO</span>
+  <button class="light" style="margin-left:12px" onclick="exitHistoricalMode()">Voltar à PAES vigente</button>
+</div>
 <main>
 <div class="tabs">
 <button class="tab active" data-tab="dashboard">Dashboard</button>
@@ -505,6 +509,11 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:16px}
 <button type="button" class="multi-filter-btn" onclick="toggleMultiFilter('status',event)">Status</button>
 <div class="multi-filter-menu" id="status_menu" onclick="event.stopPropagation()"></div>
 <select id="status" multiple onchange="renderAll()" title="Use Ctrl para selecionar mais de um"><option value="">Status</option><option value="__PENDENTE__">Pendente / sem status</option></select>
+</div>
+<div class="multi-filter" data-for="justificativaFilter">
+<button type="button" class="multi-filter-btn" onclick="toggleMultiFilter('justificativaFilter',event)">Justificativa</button>
+<div class="multi-filter-menu" id="justificativaFilter_menu" onclick="event.stopPropagation()"></div>
+<select id="justificativaFilter" multiple onchange="renderAll()" title="Use Ctrl para selecionar mais de um"><option value="">Justificativa</option></select>
 </div>
 <div class="multi-filter" data-for="ifFilter">
 <button type="button" class="multi-filter-btn" onclick="toggleMultiFilter('ifFilter',event)">IF</button>
@@ -567,6 +576,11 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:16px}
     <div class="title" style="margin-bottom:6px"><h2 style="font-size:13px">Evolução IF6</h2><strong id="if6Pct">0%</strong></div>
     <div class="progressbox"><div class="progress" id="if6Pbar"></div></div>
     <div class="caption"><span>IF6 executados</span><span id="if6Pdetail">0 de 0 serviços</span></div>
+  </div>
+  <div style="margin-top:16px">
+    <div class="title" style="margin-bottom:6px"><h2 style="font-size:13px">Índice de cumprimento da carteira PAES</h2><strong id="cumprimentoPct">0%</strong></div>
+    <div class="progressbox"><div class="progress" id="cumprimentoPbar"></div></div>
+    <div class="caption"><span>Serviços cumpridos</span><span id="cumprimentoPdetail">0 de 0 serviços</span></div>
   </div>
 
   <div id="statusResumo" style="margin-top:18px"></div>
@@ -884,12 +898,14 @@ const BOARD_EDIT_FIELDS=new Set(['executante','executanteApoio','data','dataFim'
 const PMB_EDIT_FIELDS=new Set(['area','tipo','comentarioPMB']);
 const ORIGINAL_EDIT_FIELDS=new Set([...BOARD_EDIT_FIELDS,...PMB_EDIT_FIELDS]);
 function canEditMainField(k){
+ if(isHistoricalMode()&&!isDeveloper())return false;
  if(isDeveloper())return true;
  if(currentAccessUser?.role==='bordo')return BOARD_EDIT_FIELDS.has(k);
  if(currentAccessUser?.role==='pmb')return (!ORIGINAL_EDIT_FIELDS.has(k))||PMB_EDIT_FIELDS.has(k);
  return false;
 }
 function canEditBreakCarteira(){
+ if(isHistoricalMode())return isDeveloper();
  return !!currentAccessUser&&['developer','bordo'].includes(currentAccessUser.role);
 }
 
@@ -910,6 +926,10 @@ const $=id=>document.getElementById(id);
 
 const ACCESS_USERS_KEY='paes_access_users_v1';
 let currentAccessUser=null;
+const HISTORICAL={active:false,name:'',activeSnapshot:null};
+function isHistoricalMode(){return !!HISTORICAL.active}
+function historicalEditAllowed(){return !isHistoricalMode()||isDeveloper()}
+
 
 function accessRoleLabel(role){
  return {developer:'Desenvolvedor',bordo:'Edição Bordo',pmb:'Edição PMB',view:'Visualização'}[role]||role;
@@ -929,13 +949,14 @@ function getManagedUsers(){
 }
 function setManagedUsers(users){localStorage.setItem(ACCESS_USERS_KEY,JSON.stringify(users))}
 function isDeveloper(){return currentAccessUser?.role==='developer'}
-function canEditAnything(){return !!currentAccessUser&&currentAccessUser.role!=='view'}
+function canEditAnything(){return isHistoricalMode()?isDeveloper():!!currentAccessUser&&currentAccessUser.role!=='view'}
 function requireDeveloper(){
  if(isDeveloper())return true;
  alert('Esta função é exclusiva do acesso Desenvolvedor.');
  return false;
 }
 function canOperatePaes(){
+ if(isHistoricalMode())return isDeveloper();
  return !!currentAccessUser&&['developer','bordo','pmb'].includes(currentAccessUser.role);
 }
 function requirePaesEdit(){
@@ -1039,13 +1060,15 @@ function filterFieldLabel(id){
   tipo:'Tipo',
   exec:'Executante',
   status:'Status',
+  justificativaFilter:'Justificativa',
   ifFilter:'IF',
   dataf:'Data',flagAplatFilter:'Fleg Aplat'
  }[id]||id;
 }
 function chipTextForValue(id,value){
  if(id==='status'&&value==='__PENDENTE__')return 'Pendente / sem status';
- if(id==='ifFilter')return 'IF '+value;
+ if(value==='__VAZIAS__')return 'Vazias';
+ if(id==='ifFilter'&&value!=='__VAZIAS__')return 'IF '+value;
  return value;
 }
 function removeFilterChip(id,value){
@@ -1065,7 +1088,7 @@ function renderActiveFilterChips(){
  const chips=[];
  const q=clean($('q')?.value);
  if(q)chips.push(`<span class="filter-chip">Pesquisa: ${escapeHtml(q)}<button type="button" onclick="removeFilterChip('q','')" title="Remover">×</button></span>`);
- ['supervisor','area','centro','tipo','exec','status','ifFilter','dataf','flagAplatFilter'].forEach(id=>{
+ ['supervisor','area','centro','tipo','exec','status','justificativaFilter','ifFilter','dataf','flagAplatFilter'].forEach(id=>{
    selectedValues(id).forEach(v=>{
      chips.push(`<span class="filter-chip">${escapeHtml(filterFieldLabel(id))}: ${escapeHtml(chipTextForValue(id,v))}<button type="button" onclick="removeFilterChip('${id}','${escapeJs(v)}')" title="Remover">×</button></span>`);
    });
@@ -1263,9 +1286,10 @@ function baseFiltered(){
  const q=$('q').value.toLowerCase(),ifVals=selectedValues('ifFilter'),reprogVals=selectedValues('reprogFilter');
   const flagVals=selectedValues('flagAplatFilter');
  return data.filter(r=>(!q||Object.values(r).join(' ').toLowerCase().includes(q))&&
- selectedMatches('supervisor',r.supervisor)&&selectedMatches('area',r.area)&&selectedMatches('centro',r.centro)&&
- selectedMatches('tipo',r.tipo)&&selectedMatches('exec',r.executante)&&selectedMatches('status',r.status,'__PENDENTE__')&&
- (!ifVals.length||ifVals.includes(ifValue(r)))&&
+ selectedMatches('supervisor',r.supervisor)&&selectedMatches('area',r.area,'__VAZIAS__')&&selectedMatches('centro',r.centro,'__VAZIAS__')&&
+ selectedMatches('tipo',r.tipo,'__VAZIAS__')&&selectedMatches('exec',r.executante)&&selectedMatches('status',r.status,'__PENDENTE__')&&
+ selectedMatches('justificativaFilter',r.justificativa)&&
+ (!ifVals.length||ifVals.includes(ifValue(r))||(ifVals.includes('__VAZIAS__')&&!clean(r.if)))&&
  (!reprogVals.length||reprogVals.includes(upper(r.reprogramar)))&&
  selectedMatches('dataf',r.data)&&
  (!flagVals.length||flagVals.includes(isFlagged(r)?'SIM':'NÃO')));
@@ -1302,13 +1326,26 @@ function fillFilters(){
  setOptions('area',data.map(r=>r.area));
  setOptions('centro',data.map(r=>r.centro));
  setOptions('tipo',data.map(r=>r.tipo));
+ [['area','Área'],['centro','Disciplina'],['tipo','Tipo de manutenção']].forEach(([id,label])=>{
+   if(data.some(r=>!clean(id==='centro'?r.centro:r[id]))){
+     const sel=$(id);if(sel&&!Array.from(sel.options).some(o=>o.value==='__VAZIAS__')){
+       const o=document.createElement('option');o.value='__VAZIAS__';o.textContent='Vazias';sel.appendChild(o);
+     }
+   }
+ });
  const c=selectedValues('centro');
  setOptions('exec',data.filter(r=>!c.length||c.includes(r.centro)).map(r=>r.executante));
  setOptions('status',data.map(r=>r.status));
+ setOptions('justificativaFilter',data.map(r=>r.justificativa));
  setOptions('dataf',data.map(r=>r.data));
+ if(data.some(r=>!clean(r.if))){
+   const sel=$('ifFilter');if(sel&&!Array.from(sel.options).some(o=>o.value==='__VAZIAS__')){
+     const o=document.createElement('option');o.value='__VAZIAS__';o.textContent='Vazias';sel.appendChild(o);
+   }
+ }
 }
 function clearFilters(){
- $('q').value='';['supervisor','area','centro','tipo','exec','status','ifFilter','dataf','flagAplatFilter'].forEach(clearSelect);
+ $('q').value='';['supervisor','area','centro','tipo','exec','status','justificativaFilter','ifFilter','dataf','flagAplatFilter'].forEach(clearSelect);
  activeKpiFilter='total';updateKpiState();renderAll();
 }
 function showTab(id){
@@ -1402,6 +1439,8 @@ function renderAll(){
  const if6Rows=base.filter(isIF6),if6=if6Rows.length;
  const if6Executed=if6Rows.filter(r=>isExec(r.status)||isParcial(r.status)||isExecPaesAnteriorStatus(r.status)||isEmAndamento(r.status)).length;
  const if6P=if6?Math.round(if6Executed/if6*100):0;
+ const cumpridas=base.filter(r=>isExec(r.status)||isParcial(r.status)||isEmAndamento(r.status)||isExecPaesAnterior(r.status)).length;
+ const cumprimentoP=total?Math.round(cumpridas/total*100):0;
  const p=total?Math.round(ex/total*100):0;
  $('kTotal').textContent=total;$('kExec').textContent=ex;$('kExecPct').textContent=p+'% da seleção';
  $('kParcial').textContent=parcial;$('kNao').textContent=nao;
@@ -1411,6 +1450,9 @@ function renderAll(){
  if($('if6Pct'))$('if6Pct').textContent=if6P+'%';
  if($('if6Pbar'))$('if6Pbar').style.width=if6P+'%';
  if($('if6Pdetail'))$('if6Pdetail').textContent=`${if6Executed} de ${if6} serviços`;
+ if($('cumprimentoPct'))$('cumprimentoPct').textContent=cumprimentoP+'%';
+ if($('cumprimentoPbar'))$('cumprimentoPbar').style.width=cumprimentoP+'%';
+ if($('cumprimentoPdetail'))$('cumprimentoPdetail').textContent=`${cumpridas} de ${total} serviços`;
  const pending=base.filter(r=>!clean(r.status)).length;
  $('statusResumo').innerHTML=`<div style="display:flex;gap:8px;flex-wrap:wrap">
  <span class="status ok">${ex} executados</span><span class="status warn">${parcial} executados parcialmente</span><span class="status bad">${nao} não executados (exceto quebra)</span>
@@ -1862,6 +1904,7 @@ function exportCSV(){
 const ACTIVE_PAES_KEY='paes_active_state_v1';
 
 function saveActivePaesState(){
+ if(isHistoricalMode())return true;
  try{
    const state={
      version:1,
@@ -2381,18 +2424,38 @@ function renderHistory(){
 }
 function loadHistory(name){
  const h=getHistory();if(!h[name])return;
+ if(!HISTORICAL.active){
+   HISTORICAL.activeSnapshot=currentOnlineState();
+ }
+ HISTORICAL.active=true;HISTORICAL.name=name;
  data=Array.isArray(h[name].data)?h[name].data.map(r=>({...r})):[];
  breakData=Array.isArray(h[name].breakData)?h[name].breakData.map(r=>({...r})):[];
  additionalData=Array.isArray(h[name].additionalData)?h[name].additionalData.map(r=>({...r})):[];
  flagHistory=h[name].flagHistory&&typeof h[name].flagHistory==='object'?h[name].flagHistory:{};
  histogramData=h[name].histogramData?JSON.parse(JSON.stringify(h[name].histogramData)):JSON.parse(JSON.stringify(INITIAL_HISTOGRAM));
  currentWeek=name;
- normalizeAllDatesToBR();
- activeKpiFilter='total';
- clearFilters();
- renderAll();
- showTab('dashboard');
- saveActivePaesState();
+ normalizeAllDatesToBR();activeKpiFilter='total';clearFilters();renderAll();showTab('dashboard');
+ const b=$('historicalModeBanner'),t=$('historicalModeText');
+ if(b)b.style.display='block';
+ if(t)t.textContent=isDeveloper()
+   ?`HISTÓRICO • ${name} • Modo Desenvolvedor`
+   :`🔒 HISTÓRICO • ${name} — Carteira arquivada. Qualquer alteração deve ser solicitada ao Desenvolvedor.`;
+ applyAccessUI();
+}
+function exitHistoricalMode(){
+ if(!HISTORICAL.active)return;
+ const s=HISTORICAL.activeSnapshot;
+ HISTORICAL.active=false;HISTORICAL.name='';HISTORICAL.activeSnapshot=null;
+ if(s){
+   data=Array.isArray(s.data)?s.data.map(r=>({...r})):[];
+   breakData=Array.isArray(s.breakData)?s.breakData.map(r=>({...r})):[];
+   additionalData=Array.isArray(s.additionalData)?s.additionalData.map(r=>({...r})):[];
+   flagHistory=s.flagHistory&&typeof s.flagHistory==='object'?s.flagHistory:{};
+   histogramData=s.histogramData||JSON.parse(JSON.stringify(INITIAL_HISTOGRAM));
+   currentWeek=clean(s.currentWeek)||'PAES vigente';
+ }
+ const b=$('historicalModeBanner');if(b)b.style.display='none';
+ activeKpiFilter='total';clearFilters();renderAll();showTab('dashboard');
 }
 function deleteHistory(name){const h=getHistory();delete h[name];localStorage.setItem('paes_history_v1',JSON.stringify(h));renderHistory()}
 
@@ -2656,6 +2719,13 @@ $('file').addEventListener('change',async e=>{
   const unknownDisciplines=validateImportedDisciplines(parsed);
   const importedWeek=clean(parsed.find(r=>clean(r.carteira))?.carteira)||f.name;
   const previousWeek=clean(currentWeek);
+  const isNewPaes=previousWeek&&previousWeek!=='PAES limpa'&&previousWeek!==importedWeek;
+  if(isNewPaes){
+    // Arquiva a vigente ANTES de substituí-la pela nova importação.
+    saveCurrentToHistory();
+  }
+  HISTORICAL.active=false;HISTORICAL.name='';HISTORICAL.activeSnapshot=null;
+  if($('historicalModeBanner'))$('historicalModeBanner').style.display='none';
   data=parsed;
   breakData=parseQuebraCarteiraSheet(wb);
   histogramData=parseHistogramaSheet(wb);
@@ -2663,7 +2733,7 @@ $('file').addEventListener('change',async e=>{
   currentWeek=importedWeek;
   activeKpiFilter='total';
 
-  saveCurrentToHistory();
+  saveActivePaesState();
   clearFilters();
   renderAll();
   showTab('dashboard');
@@ -2687,7 +2757,9 @@ const ONLINE={
   applyingRemote:false,
   pushTimer:null,
   pollTimer:null,
-  users:[]
+  users:[],
+  serverWeek:'',
+  serverRevision:0
 };
 
 function setOnlineStatus(text,kind='ok'){
@@ -2729,8 +2801,7 @@ async function submitForcedPasswordChange(){
    currentAccessUser={...currentAccessUser,mustChangePassword:false};
    sessionStorage.setItem('paes_current_access',JSON.stringify(currentAccessUser));
    hideForcedPasswordChange();
-   await fetchOnlineState();
-   if(isDeveloper())await refreshOnlineUsers();
+   await initializeAfterLogin(p);
    startOnlinePolling();
    alert('Senha alterada com sucesso.');
  }catch(e){err.textContent=e.message||'Falha ao alterar a senha.'}
@@ -2774,6 +2845,7 @@ function applyOnlineState(state,revision){
    ONLINE.revision=Number(revision||0);
    sessionStorage.setItem('paes_online_revision',String(ONLINE.revision));
    localStorage.setItem(ACTIVE_PAES_KEY,JSON.stringify(state));
+   if(currentAccessUser?.role==='view')localStorage.setItem('paes_view_last_sync',new Date().toISOString());
    renderAll();
    setOnlineStatus(`Online • rev. ${ONLINE.revision}`,'ok');
  }finally{
@@ -2811,6 +2883,7 @@ async function pushOnlineState(){
  }
 }
 function queueOnlinePush(){
+ if(isHistoricalMode())return;
  if(!ONLINE.token||ONLINE.applyingRemote||!canOperatePaes())return;
  clearTimeout(ONLINE.pushTimer);
  ONLINE.pushTimer=setTimeout(pushOnlineState,700);
@@ -2819,16 +2892,10 @@ async function refreshOnlineDataManual(){
  if(!ONLINE.token)return;
  try{
    setOnlineStatus('Atualizando...','warn');
-   const p=await apiRequest('revision');
-   const rev=Number(p.revision||0);
-
-   if(rev>ONLINE.revision){
-     await fetchOnlineState();
-     alert('Dados atualizados com sucesso.');
-   }else{
-     setOnlineStatus(`Online • rev. ${ONLINE.revision}`,'ok');
-     alert('Nenhuma atualização disponível.');
-   }
+   await fetchOnlineState();
+   localStorage.setItem('paes_view_last_sync',new Date().toISOString());
+   updateViewerSyncInfo();
+   alert('Dados atualizados com sucesso.');
  }catch(err){
    if(err.status===401){logoutUser();return}
    setOnlineStatus('Sem conexão','bad');
@@ -2847,6 +2914,63 @@ saveActivePaesState=function(){
  queueOnlinePush();
  return ok;
 };
+
+
+function localPaesAvailable(){
+ try{
+   const s=JSON.parse(localStorage.getItem(ACTIVE_PAES_KEY)||'null');
+   return !!(s&&Array.isArray(s.data)&&s.data.length);
+ }catch(e){return false}
+}
+function localPaesWeek(){
+ try{return clean(JSON.parse(localStorage.getItem(ACTIVE_PAES_KEY)||'null')?.currentWeek)}catch(e){return ''}
+}
+function updateViewerSyncInfo(){
+ const el=$('viewerSyncInfo');if(!el)return;
+ if(currentAccessUser?.role!=='view'){el.style.display='none';return}
+ const raw=localStorage.getItem('paes_view_last_sync');
+ let txt='Dados locais';
+ if(raw){
+   const d=new Date(raw);
+   if(!isNaN(d))txt+=` • atualizados em ${d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}`;
+ }
+ el.textContent=txt;el.style.display='inline-flex';
+}
+async function initializeAfterLogin(loginPayload){
+ const isView=currentAccessUser?.role==='view';
+ ONLINE.serverWeek=clean(loginPayload?.currentWeek);
+ ONLINE.serverRevision=Number(loginPayload?.revision||0);
+
+ if(!isView){
+   await fetchOnlineState();
+   if(isDeveloper())await refreshOnlineUsers();
+   updateViewerSyncInfo();
+   return;
+ }
+
+ if(!localPaesAvailable()){
+   await fetchOnlineState();
+   localStorage.setItem('paes_view_last_sync',new Date().toISOString());
+   updateViewerSyncInfo();
+   return;
+ }
+
+ // Mantém a cópia local. O login já trouxe apenas o identificador da vigente.
+ const localWeek=localPaesWeek();
+ setOnlineStatus(`Online • rev. ${ONLINE.revision}`,'ok');
+ updateViewerSyncInfo();
+ if(ONLINE.serverWeek&&localWeek&&ONLINE.serverWeek!==localWeek){
+   const ok=confirm(`Nova PAES disponível: ${ONLINE.serverWeek}.\n\nVocê está consultando ${localWeek}. Deseja atualizar agora?`);
+   if(ok){
+     await fetchOnlineState();
+     localStorage.setItem('paes_view_last_sync',new Date().toISOString());
+     updateViewerSyncInfo();
+   }else{
+     const el=$('viewerSyncInfo');
+     if(el)el.textContent=`⚠ Consultando ${localWeek} • Vigente: ${ONLINE.serverWeek}`;
+   }
+ }
+}
 
 // ---------- Centralized login ----------
 performLogin=async function(){
@@ -2884,7 +3008,12 @@ restoreLoginSession=function(){
    $('currentUserBadge').textContent=`${currentAccessUser.name||currentAccessUser.login} • ${accessRoleLabel(currentAccessUser.role)}`;
    applyAccessUI();
    if(currentAccessUser.mustChangePassword){showForcedPasswordChange();return true;}
-   fetchOnlineState().then(()=>{if(isDeveloper())refreshOnlineUsers()}).catch(()=>logoutUser());
+   if(currentAccessUser.role==='view'){
+     updateViewerSyncInfo();
+     setOnlineStatus(`Online • rev. ${ONLINE.revision}`,'ok');
+   }else{
+     fetchOnlineState().then(()=>{if(isDeveloper())refreshOnlineUsers()}).catch(()=>logoutUser());
+   }
    startOnlinePolling();
    return true;
  }catch(e){return false}
