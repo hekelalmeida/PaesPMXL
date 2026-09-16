@@ -1050,7 +1050,7 @@ function renderManagedUsers(){
 
 const clean=v=>String(v??'').trim();
 function selectedValues(id){const e=$(id);return e?[...e.selectedOptions].map(o=>o.value).filter(v=>v!==''):[]}
-function selectedMatches(id,value,emptyToken=null){const vals=selectedValues(id);if(!vals.length)return true;if(emptyToken&&vals.includes(emptyToken)&&!clean(value))return true;return vals.includes(clean(value))}
+function selectedMatches(id,value,emptyToken='__VAZIAS__'){const vals=selectedValues(id);if(!vals.length)return true;if(vals.includes(emptyToken)&&!clean(value))return true;return vals.filter(v=>v!==emptyToken).includes(clean(value))}
 function clearSelect(id){const e=$(id);if(e)[...e.options].forEach(o=>o.selected=false)}
 
 function filterFieldLabel(id){
@@ -1279,7 +1279,7 @@ function dupHtml(v,type){
 function setOptions(id,values){
  const e=$(id),old=selectedValues(id),first=e.options[0].outerHTML;
  const extra=id==='status'?'<option value="__PENDENTE__">Pendente / sem status</option>':'';
- const emptyExtra=['area','centro','tipo','justificativaFilter'].includes(id)&&values.some(v=>!clean(v))
+ const emptyExtra=id!=='status'&&values.some(v=>!clean(v))
    ?'<option value="__VAZIAS__">Vazias</option>':'';
  e.innerHTML=first+extra+emptyExtra+[...new Set(values.filter(v=>clean(v)))].sort((a,b)=>String(a).localeCompare(String(b),'pt-BR')).map(v=>`<option>${escapeHtml(v)}</option>`).join('');
  [...e.options].forEach(o=>o.selected=old.includes(o.value));
@@ -1290,12 +1290,12 @@ function baseFiltered(){
  const q=$('q').value.toLowerCase(),ifVals=selectedValues('ifFilter'),reprogVals=selectedValues('reprogFilter');
   const flagVals=selectedValues('flagAplatFilter');
  return data.filter(r=>(!q||Object.values(r).join(' ').toLowerCase().includes(q))&&
- selectedMatches('supervisor',r.supervisor)&&selectedMatches('area',r.area,'__VAZIAS__')&&selectedMatches('centro',r.centro,'__VAZIAS__')&&
- selectedMatches('tipo',r.tipo,'__VAZIAS__')&&selectedMatches('exec',r.executante)&&selectedMatches('status',r.status,'__PENDENTE__')&&
+ selectedMatches('supervisor',r.supervisor,'__VAZIAS__')&&selectedMatches('area',r.area,'__VAZIAS__')&&selectedMatches('centro',r.centro,'__VAZIAS__')&&
+ selectedMatches('tipo',r.tipo,'__VAZIAS__')&&selectedMatches('exec',r.executante,'__VAZIAS__')&&selectedMatches('status',r.status,'__PENDENTE__')&&
  selectedMatches('justificativaFilter',r.justificativa,'__VAZIAS__')&&
  (!ifVals.length||ifVals.includes(ifValue(r))||(ifVals.includes('__VAZIAS__')&&!clean(r.if)))&&
  (!reprogVals.length||reprogVals.includes(upper(r.reprogramar)))&&
- selectedMatches('dataf',r.data)&&
+ selectedMatches('dataf',r.data,'__VAZIAS__')&&
  (!flagVals.length||flagVals.includes(isFlagged(r)?'SIM':'NÃO')));
 }
 function applyKpi(rows){
@@ -1330,27 +1330,22 @@ function fillFilters(){
  setOptions('area',data.map(r=>r.area));
  setOptions('centro',data.map(r=>r.centro));
  setOptions('tipo',data.map(r=>r.tipo));
- ['area','centro','tipo'].forEach(id=>{
-   const sel=$(id);
-   if(sel&&!Array.from(sel.options).some(o=>o.value==='__VAZIAS__')){
-     const o=document.createElement('option');
-     o.value='__VAZIAS__';
-     o.textContent='Vazias';
-     sel.appendChild(o);
-   }
-   renderMultiMenu(id);
- });
  const c=selectedValues('centro');
  setOptions('exec',data.filter(r=>!c.length||c.includes(r.centro)).map(r=>r.executante));
  setOptions('status',data.map(r=>r.status));
  setOptions('justificativaFilter',data.map(r=>r.justificativa));
  setOptions('dataf',data.map(r=>r.data));
- if(data.some(r=>!clean(r.if))){
-   const sel=$('ifFilter');if(sel&&!Array.from(sel.options).some(o=>o.value==='__VAZIAS__')){
-     const o=document.createElement('option');o.value='__VAZIAS__';o.textContent='Vazias';sel.appendChild(o);
-   }
-   renderMultiMenu('ifFilter');
- }
+
+  if(data.some(r=>!clean(r.if))){
+    const sel=$('ifFilter');
+    if(sel&&!Array.from(sel.options).some(o=>o.value==='__VAZIAS__')){
+      const o=document.createElement('option');
+      o.value='__VAZIAS__';
+      o.textContent='Vazias';
+      sel.appendChild(o);
+    }
+    renderMultiMenu('ifFilter');
+  }
 }
 function clearFilters(){
  $('q').value='';['supervisor','area','centro','tipo','exec','status','justificativaFilter','ifFilter','dataf','flagAplatFilter'].forEach(clearSelect);
@@ -2134,10 +2129,24 @@ function renderAdditionalServices(){
  updateAdditionalActionButtons();
 }
 
+function filteredBreakCarteiraRows(){
+ const statusVals=selectedValues('status');
+ const justVals=selectedValues('justificativaFilter');
+ return breakData.map((r,i)=>({r,i})).filter(({r})=>{
+   const statusOk=!statusVals.length
+     ||(statusVals.includes('__PENDENTE__')&&!clean(r.status))
+     ||statusVals.filter(v=>v!=='__PENDENTE__').includes(clean(r.status));
+   const justOk=!justVals.length
+     ||(justVals.includes('__VAZIAS__')&&!clean(r.justificativa))
+     ||justVals.filter(v=>v!=='__VAZIAS__').includes(clean(r.justificativa));
+   return statusOk&&justOk;
+ });
+}
 function renderBreakCarteira(){
- $('breakCount').textContent=breakData.length+' registro(s)';
+ const breakFiltered=filteredBreakCarteiraRows();
+ $('breakCount').textContent=breakFiltered.length+' registro(s)';
  $('breakHead').innerHTML='<th>ID</th><th>Fleg Aplat</th>'+breakDeleteHeaderHtml()+'<th>Ordem</th><th>Operação</th><th>IF</th><th>TAG</th><th>Texto breve</th><th>Disciplina</th><th>Área</th><th>HH</th><th>Executante</th><th>Data</th><th>APLAT</th><th class="status-col">Status</th><th>Justificativa</th>';
- const breakHtml=breakData.map((r,i)=>`<tr class="${rowStatusClass(r.status)}" onclick="openBreakRow(${i})">
+ const breakHtml=breakFiltered.map(({r,i})=>`<tr class="${rowStatusClass(r.status)}" onclick="openBreakRow(${i})">
  <td><span class="badge">${escapeHtml(r.idQuebra||'-')}</span></td>
  ${flagCellHtml(r,'break',i)}
  ${breakDeleteSelectionCell(i)}
@@ -2147,7 +2156,7 @@ function renderBreakCarteira(){
  <td>${escapeHtml(r.area||'-')}</td><td>${(Number(r.hh)||0).toLocaleString('pt-BR')}</td><td>${escapeHtml(r.executante||'-')}</td>
  <td>${escapeHtml(formatDateBR(r.data)||'-')}</td><td>${dupHtml(r.aplat,'aplat')}</td><td class="status-cell"><span class="status ${stClass(r.status)}">${escapeHtml(statusText(r))}</span></td>
  <td>${(isNao(r.status)&&isQuebra(r))?breakTooltipHtml(r):escapeHtml(r.justificativa||'-')}</td></tr>`).join('');
- $('breakBody').innerHTML=breakData.length?padRowsHtml(breakHtml,breakData.length,15+(breakDeletionMode?1:0)):padRowsHtml('<tr><td colspan="'+(15+(breakDeletionMode?1:0))+'" class="empty">Nenhum registro encontrado na aba QUEBRA CARTEIRA.</td></tr>',1,15+(breakDeletionMode?1:0));
+ $('breakBody').innerHTML=breakFiltered.length?padRowsHtml(breakHtml,breakFiltered.length,15+(breakDeletionMode?1:0)):padRowsHtml('<tr><td colspan="'+(15+(breakDeletionMode?1:0))+'" class="empty">Nenhum registro encontrado na aba QUEBRA CARTEIRA.</td></tr>',1,15+(breakDeletionMode?1:0));
 }
 
 let editingBreakIndex=null;
@@ -2965,7 +2974,7 @@ async function initializeAfterLogin(loginPayload){
 
  // Mantém a cópia local. O login já trouxe apenas o identificador da vigente.
  const localWeek=localPaesWeek();
- setOnlineStatus(`Online • rev. ${ONLINE.revision}`,'ok');
+ setOnlineStatus('Dados locais','ok');
  updateViewerSyncInfo();
  if(ONLINE.serverWeek&&localWeek&&ONLINE.serverWeek!==localWeek){
    const ok=confirm(`Nova PAES disponível: ${ONLINE.serverWeek}.\n\nVocê está consultando ${localWeek}. Deseja atualizar agora?`);
@@ -2998,8 +3007,7 @@ performLogin=async function(){
    $('currentUserBadge').textContent=`${currentAccessUser.name||currentAccessUser.login} • ${accessRoleLabel(currentAccessUser.role)}`;
    applyAccessUI();
    if(currentAccessUser.mustChangePassword){showForcedPasswordChange();return;}
-   await fetchOnlineState();
-   if(isDeveloper())await refreshOnlineUsers();
+   await initializeAfterLogin(p);
    startOnlinePolling();
  }catch(err){
    $('loginError').textContent=err.message||'Falha no login.';
@@ -3018,7 +3026,7 @@ restoreLoginSession=function(){
    if(currentAccessUser.mustChangePassword){showForcedPasswordChange();return true;}
    if(currentAccessUser.role==='view'){
      updateViewerSyncInfo();
-     setOnlineStatus(`Online • rev. ${ONLINE.revision}`,'ok');
+     setOnlineStatus('Dados locais','ok');
    }else{
      fetchOnlineState().then(()=>{if(isDeveloper())refreshOnlineUsers()}).catch(()=>logoutUser());
    }
@@ -3096,5 +3104,7 @@ if(!loadActivePaesState()){
 renderAll();
 setTimeout(()=>{if(!restoreLoginSession())$('loginScreen').classList.remove('hidden')},0);
 </script>
+
+
 </body>
 </html>
