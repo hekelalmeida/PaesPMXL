@@ -1,4 +1,4 @@
-
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
@@ -32,6 +32,7 @@ main{max-width:1540px;margin:auto;padding:18px}
 .mlabel{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:800}
 .mvalue{font-size:27px;font-weight:900;margin-top:8px}.mnote{font-size:11px;color:var(--muted);margin-top:4px}
 .filters{display:grid;grid-template-columns:2fr repeat(7,1fr);gap:9px;margin:13px 0}
+.justificativa-wide{grid-column:1 / span 4;max-width:none}
 .filters input,.filters select{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--text)}
 .filters select[multiple]{display:none}
 .multi-filter{position:relative;min-width:0}
@@ -510,11 +511,6 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:16px}
 <div class="multi-filter-menu" id="status_menu" onclick="event.stopPropagation()"></div>
 <select id="status" multiple onchange="renderAll()" title="Use Ctrl para selecionar mais de um"><option value="">Status</option><option value="__PENDENTE__">Pendente / sem status</option></select>
 </div>
-<div class="multi-filter" data-for="justificativaFilter">
-<button type="button" class="multi-filter-btn" onclick="toggleMultiFilter('justificativaFilter',event)">Justificativa</button>
-<div class="multi-filter-menu" id="justificativaFilter_menu" onclick="event.stopPropagation()"></div>
-<select id="justificativaFilter" multiple onchange="renderAll()" title="Use Ctrl para selecionar mais de um"><option value="">Justificativa</option></select>
-</div>
 <div class="multi-filter" data-for="ifFilter">
 <button type="button" class="multi-filter-btn" onclick="toggleMultiFilter('ifFilter',event)">IF</button>
 <div class="multi-filter-menu" id="ifFilter_menu" onclick="event.stopPropagation()"></div>
@@ -525,6 +521,11 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:16px}
 <button type="button" class="multi-filter-btn" onclick="toggleMultiFilter('dataf',event)">Data</button>
 <div class="multi-filter-menu" id="dataf_menu" onclick="event.stopPropagation()"></div>
 <select id="dataf" multiple onchange="renderAll()" title="Use Ctrl para selecionar mais de um"><option value="">Data</option></select>
+</div>
+<div class="multi-filter justificativa-wide" data-for="justificativaFilter">
+<button type="button" class="multi-filter-btn" onclick="toggleMultiFilter('justificativaFilter',event)">Justificativa</button>
+<div class="multi-filter-menu" id="justificativaFilter_menu" onclick="event.stopPropagation()"></div>
+<select id="justificativaFilter" multiple onchange="renderAll()" title="Use Ctrl para selecionar mais de um"><option value="">Justificativa</option></select>
 </div>
 <div class="clear-filter-box"><button type="button" class="clear-filter-btn" onclick="clearFilters()">Limpar Filtros</button></div>
 <div class="filter-help">Clique em um filtro para abrir a lista e marque uma ou mais opções.</div>
@@ -1162,7 +1163,7 @@ function renderMultiMenu(id){
  updateMultiButton(id);
 }
 function renderAllMultiMenus(){
- ['supervisor','area','centro','tipo','exec','status','ifFilter','dataf','flagAplatFilter'].forEach(renderMultiMenu);
+ ['supervisor','area','centro','tipo','exec','status','justificativaFilter','ifFilter','dataf','flagAplatFilter'].forEach(renderMultiMenu);
 }
 function toggleMultiOption(id,value,checked){
  const sel=$(id);
@@ -1326,11 +1327,13 @@ function fillFilters(){
  setOptions('area',data.map(r=>r.area));
  setOptions('centro',data.map(r=>r.centro));
  setOptions('tipo',data.map(r=>r.tipo));
- [['area','Área'],['centro','Disciplina'],['tipo','Tipo de manutenção']].forEach(([id,label])=>{
-   if(data.some(r=>!clean(id==='centro'?r.centro:r[id]))){
-     const sel=$(id);if(sel&&!Array.from(sel.options).some(o=>o.value==='__VAZIAS__')){
-       const o=document.createElement('option');o.value='__VAZIAS__';o.textContent='Vazias';sel.appendChild(o);
-     }
+ ['area','centro','tipo'].forEach(id=>{
+   const sel=$(id);
+   if(sel&&!Array.from(sel.options).some(o=>o.value==='__VAZIAS__')){
+     const o=document.createElement('option');
+     o.value='__VAZIAS__';
+     o.textContent='Vazias';
+     sel.appendChild(o);
    }
  });
  const c=selectedValues('centro');
