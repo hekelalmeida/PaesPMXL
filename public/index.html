@@ -32,7 +32,7 @@ main{max-width:1540px;margin:auto;padding:18px}
 .mlabel{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:800}
 .mvalue{font-size:27px;font-weight:900;margin-top:8px}.mnote{font-size:11px;color:var(--muted);margin-top:4px}
 .filters{display:grid;grid-template-columns:2fr repeat(7,1fr);gap:9px;margin:13px 0}
-.justificativa-wide{grid-column:1 / span 4;max-width:none}
+.justificativa-wide{grid-column:5 / -1;max-width:none}
 .filters input,.filters select{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--text)}
 .filters select[multiple]{display:none}
 .multi-filter{position:relative;min-width:0}
@@ -1120,6 +1120,7 @@ function getDefaultFilterLabel(id){
   tipo:'Tipo de manutenção',
   exec:'Executante',
   status:'Status',
+  justificativaFilter:'Justificativa',
   ifFilter:'IF',
   dataf:'Data',flagAplatFilter:'Fleg Aplat'
  }[id]||'';
@@ -1278,7 +1279,9 @@ function dupHtml(v,type){
 function setOptions(id,values){
  const e=$(id),old=selectedValues(id),first=e.options[0].outerHTML;
  const extra=id==='status'?'<option value="__PENDENTE__">Pendente / sem status</option>':'';
- e.innerHTML=first+extra+[...new Set(values.filter(v=>clean(v)))].sort((a,b)=>String(a).localeCompare(String(b),'pt-BR')).map(v=>`<option>${escapeHtml(v)}</option>`).join('');
+ const emptyExtra=['area','centro','tipo','justificativaFilter'].includes(id)&&values.some(v=>!clean(v))
+   ?'<option value="__VAZIAS__">Vazias</option>':'';
+ e.innerHTML=first+extra+emptyExtra+[...new Set(values.filter(v=>clean(v)))].sort((a,b)=>String(a).localeCompare(String(b),'pt-BR')).map(v=>`<option>${escapeHtml(v)}</option>`).join('');
  [...e.options].forEach(o=>o.selected=old.includes(o.value));
  if($(id+'_menu')) renderMultiMenu(id);
 }
@@ -1289,7 +1292,7 @@ function baseFiltered(){
  return data.filter(r=>(!q||Object.values(r).join(' ').toLowerCase().includes(q))&&
  selectedMatches('supervisor',r.supervisor)&&selectedMatches('area',r.area,'__VAZIAS__')&&selectedMatches('centro',r.centro,'__VAZIAS__')&&
  selectedMatches('tipo',r.tipo,'__VAZIAS__')&&selectedMatches('exec',r.executante)&&selectedMatches('status',r.status,'__PENDENTE__')&&
- selectedMatches('justificativaFilter',r.justificativa)&&
+ selectedMatches('justificativaFilter',r.justificativa,'__VAZIAS__')&&
  (!ifVals.length||ifVals.includes(ifValue(r))||(ifVals.includes('__VAZIAS__')&&!clean(r.if)))&&
  (!reprogVals.length||reprogVals.includes(upper(r.reprogramar)))&&
  selectedMatches('dataf',r.data)&&
@@ -1335,6 +1338,7 @@ function fillFilters(){
      o.textContent='Vazias';
      sel.appendChild(o);
    }
+   renderMultiMenu(id);
  });
  const c=selectedValues('centro');
  setOptions('exec',data.filter(r=>!c.length||c.includes(r.centro)).map(r=>r.executante));
@@ -1345,6 +1349,7 @@ function fillFilters(){
    const sel=$('ifFilter');if(sel&&!Array.from(sel.options).some(o=>o.value==='__VAZIAS__')){
      const o=document.createElement('option');o.value='__VAZIAS__';o.textContent='Vazias';sel.appendChild(o);
    }
+   renderMultiMenu('ifFilter');
  }
 }
 function clearFilters(){
