@@ -779,7 +779,7 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:16px}
   </div>
 </section>
 
-<section id="historico" class="panel"><div class="title"><h2>Carteiras armazenadas neste navegador</h2><span id="historyCount"></span></div><div class="history" id="historyList"></div></section>
+<section id="historico" class="panel"><div class="title"><div><h2>Histórico de Carteiras PAES</h2><div style="font-size:11px;color:var(--muted);margin-top:3px">Histórico online centralizado • igual para todos os usuários</div></div><span id="historyCount"></span></div><div class="history" id="historyList"></div></section>
 </main>
 
 <div class="modal" id="modal" onclick="if(event.target===this)closeModal()"><div class="box"><div class="boxhead"><strong id="serviceModalTitle">Detalhes completos do serviço</strong><button class="close" onclick="closeModal()">×</button></div><div class="boxbody"><div class="details" id="details"></div><div class="modal-actions"><button class="cancelbtn" onclick="closeModal()">Cancelar</button><button class="savebtn" id="serviceSaveBtn" onclick="saveEditedRow()">Salvar alterações</button></div></div></div></div>
@@ -1356,6 +1356,7 @@ function showTab(id){
  const btn=[...document.querySelectorAll('.tab')].find(b=>b.dataset.tab===id);
  if(btn)btn.classList.add('active');
  $(id).classList.add('active');
+ if(id==='historico'&&ONLINE?.token)refreshOnlineHistoryList();
 }
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 
@@ -1947,26 +1948,36 @@ function loadActivePaesState(){
  }
 }
 
+const HISTORY_CACHE_KEY='paes_history_online_cache_v1';
+let ONLINE_HISTORY_INDEX=[];
+let historyPushTimer=null;
+
+function historyCache(){try{return JSON.parse(localStorage.getItem(HISTORY_CACHE_KEY)||'{}')}catch(e){return{}}}
+function setHistoryCache(week,obj){try{const h=historyCache();h[week]=obj;localStorage.setItem(HISTORY_CACHE_KEY,JSON.stringify(h))}catch(e){console.warn('Cache histórico indisponível.',e)}}
+function getHistory(){return historyCache()}
+
 function saveCurrentToHistory(){
- try{
-   const key='paes_history_v1';
-   let h={};try{h=JSON.parse(localStorage.getItem(key)||'{}')}catch(e){h={}}
-   const name=currentWeek||('Carteira '+new Date().toLocaleDateString('pt-BR'));
-   h[name]={
-     savedAt:new Date().toISOString(),
-     data:Array.isArray(data)?data:[],
-     breakData:Array.isArray(breakData)?breakData:[],
-     additionalData:Array.isArray(additionalData)?additionalData:[],
-     flagHistory:flagHistory||{},
-     histogramData:histogramData||null
-   };
-   localStorage.setItem(key,JSON.stringify(h));
- }catch(e){
-   console.warn('Não foi possível atualizar o histórico.',e);
- }
- saveActivePaesState();
+ // Durante a PAES vigente, esta função preserva somente o cache/estado ativo.
+ // Uma carteira só vira histórica na troca oficial de semana.
+ if(!isHistoricalMode())return saveActivePaesState();
+ // Histórico é bloqueado para todos, exceto Desenvolvedor.
+ if(isDeveloper())queueHistoricalPush();
+ return true;
 }
-function getHistory(){try{return JSON.parse(localStorage.getItem('paes_history_v1')||'{}')}catch(e){return{}}}
+function queueHistoricalPush(){
+ if(!HISTORICAL.active||!HISTORICAL.name||!isDeveloper()||!ONLINE.token)return;
+ clearTimeout(historyPushTimer);
+ historyPushTimer=setTimeout(pushHistoricalState,700);
+}
+async function pushHistoricalState(){
+ if(!HISTORICAL.active||!HISTORICAL.name||!isDeveloper())return;
+ try{
+   const state=currentOnlineState();state.currentWeek=HISTORICAL.name;
+   const payload=await apiRequest('history/'+encodeURIComponent(HISTORICAL.name),{method:'PUT',body:JSON.stringify({state})});
+   setHistoryCache(HISTORICAL.name,{savedAt:payload.archivedAt||new Date().toISOString(),state});
+   await refreshOnlineHistoryList(false);
+ }catch(e){console.error(e);alert('Não foi possível salvar a alteração no histórico online: '+e.message)}
+}
 
 let additionalActionMode=null;
 let selectedAdditional=new Set();
@@ -2423,58 +2434,74 @@ function renderHistograma(){
  }).join('')||'<div class="empty">Nenhum histograma disponível no Excel importado.</div>';
 }
 function renderHistory(){
- const h=getHistory(),entries=Object.entries(h).sort((a,b)=>String(b[1].savedAt).localeCompare(String(a[1].savedAt)));
+ const entries=Array.isArray(ONLINE_HISTORY_INDEX)?ONLINE_HISTORY_INDEX:[];
  $('historyCount').textContent=entries.length+' carteira(s)';
- $('historyList').innerHTML=entries.map(([name,obj])=>{
- const rows=obj.data||[],hh=rows.reduce((a,r)=>a+(Number(r.hh)||0),0),ex=rows.filter(r=>isExec(r.status)).length;
- let updated='Data não disponível';
- if(obj.savedAt){
-   const d=new Date(obj.savedAt);
-   if(!isNaN(d.getTime()))updated=d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
- }
- return `<div class="card history-item"><div class="mlabel">${escapeHtml(name)}</div><div class="mvalue">${rows.length}</div>
- <div class="mnote">${ex} executados • ${hh.toLocaleString('pt-BR')} HH</div>
- <div class="mnote" style="margin-top:6px"><strong>Última atualização:</strong> ${escapeHtml(updated)}</div>
- <button onclick="loadHistory('${escapeJs(name)}')">Abrir carteira</button>
- <button onclick="deleteHistory('${escapeJs(name)}')" style="background:#fde6e9;color:#9e2638">Excluir</button></div>`;
- }).join('')||'<div class="empty">Nenhuma carteira adicional foi armazenada neste navegador.</div>';
+ $('historyList').innerHTML=entries.map(obj=>{
+   const name=clean(obj.week),rows=Number(obj.total||0),ex=Number(obj.executed||0),hh=Number(obj.hh||0);
+   let updated='Data não disponível';
+   if(obj.archivedAt){const d=new Date(obj.archivedAt);if(!isNaN(d))updated=d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}
+   const del=isDeveloper()?`<button onclick="deleteHistory('${escapeJs(name)}')" style="background:#fde6e9;color:#9e2638">Excluir</button>`:'';
+   return `<div class="card history-item"><div class="mlabel">${escapeHtml(name)}</div><div class="mvalue">${rows}</div>
+   <div class="mnote">${ex} executados • ${hh.toLocaleString('pt-BR')} HH</div>
+   <div class="mnote" style="margin-top:6px"><strong>Arquivada em:</strong> ${escapeHtml(updated)}</div>
+   <div class="mnote" style="margin-top:4px">🔒 Carteira histórica online</div>
+   <button onclick="loadHistory('${escapeJs(name)}')">Abrir carteira</button>${del}</div>`;
+ }).join('')||'<div class="empty">Nenhuma carteira histórica foi arquivada no banco online.</div>';
 }
-function loadHistory(name){
- const h=getHistory();if(!h[name])return;
- if(!HISTORICAL.active){
-   HISTORICAL.activeSnapshot=currentOnlineState();
- }
- HISTORICAL.active=true;HISTORICAL.name=name;
- data=Array.isArray(h[name].data)?h[name].data.map(r=>({...r})):[];
- breakData=Array.isArray(h[name].breakData)?h[name].breakData.map(r=>({...r})):[];
- additionalData=Array.isArray(h[name].additionalData)?h[name].additionalData.map(r=>({...r})):[];
- flagHistory=h[name].flagHistory&&typeof h[name].flagHistory==='object'?h[name].flagHistory:{};
- histogramData=h[name].histogramData?JSON.parse(JSON.stringify(h[name].histogramData)):JSON.parse(JSON.stringify(INITIAL_HISTOGRAM));
- currentWeek=name;
- normalizeAllDatesToBR();activeKpiFilter='total';clearFilters();renderAll();showTab('dashboard');
- const b=$('historicalModeBanner'),t=$('historicalModeText');
- if(b)b.style.display='block';
- if(t)t.textContent=isDeveloper()
-   ?`HISTÓRICO • ${name} • Modo Desenvolvedor`
-   :`🔒 HISTÓRICO • ${name} — Carteira arquivada. Qualquer alteração deve ser solicitada ao Desenvolvedor.`;
- applyAccessUI();
+async function refreshOnlineHistoryList(showError=true){
+ if(!ONLINE.token)return;
+ try{
+   const p=await apiRequest('history');
+   ONLINE_HISTORY_INDEX=Array.isArray(p?.history)?p.history:[];
+   renderHistory();
+ }catch(e){if(showError)alert('Não foi possível consultar o histórico online: '+e.message)}
+}
+async function loadHistory(name){
+ if(!name)return;
+ if(!HISTORICAL.active)HISTORICAL.activeSnapshot=currentOnlineState();
+ try{
+   let obj=null;
+   // Histórico congelado pode ser reutilizado do cache; Desenvolvedor sempre lê a fonte oficial.
+   if(!isDeveloper())obj=historyCache()[name]||null;
+   if(!obj?.state){
+     const p=await apiRequest('history/'+encodeURIComponent(name));
+     obj={savedAt:p.archivedAt,state:p.state};
+     setHistoryCache(name,obj);
+   }
+   const h=obj.state;if(!h)return;
+   HISTORICAL.active=true;HISTORICAL.name=name;
+   data=Array.isArray(h.data)?h.data.map(r=>({...r})):[];
+   breakData=Array.isArray(h.breakData)?h.breakData.map(r=>({...r})):[];
+   additionalData=Array.isArray(h.additionalData)?h.additionalData.map(r=>({...r})):[];
+   flagHistory=h.flagHistory&&typeof h.flagHistory==='object'?h.flagHistory:{};
+   histogramData=h.histogramData?JSON.parse(JSON.stringify(h.histogramData)):JSON.parse(JSON.stringify(INITIAL_HISTOGRAM));
+   currentWeek=name;
+   normalizeAllDatesToBR();activeKpiFilter='total';clearFilters();renderAll();showTab('dashboard');
+   const b=$('historicalModeBanner'),t=$('historicalModeText');if(b)b.style.display='block';
+   if(t)t.textContent=isDeveloper()?`HISTÓRICO • ${name} • Modo Desenvolvedor`:`🔒 HISTÓRICO • ${name} — Carteira arquivada. Qualquer alteração deve ser solicitada ao Desenvolvedor.`;
+   applyAccessUI();
+ }catch(e){alert('Não foi possível abrir a carteira histórica: '+e.message)}
 }
 function exitHistoricalMode(){
  if(!HISTORICAL.active)return;
- const s=HISTORICAL.activeSnapshot;
+ const st=HISTORICAL.activeSnapshot;
  HISTORICAL.active=false;HISTORICAL.name='';HISTORICAL.activeSnapshot=null;
- if(s){
-   data=Array.isArray(s.data)?s.data.map(r=>({...r})):[];
-   breakData=Array.isArray(s.breakData)?s.breakData.map(r=>({...r})):[];
-   additionalData=Array.isArray(s.additionalData)?s.additionalData.map(r=>({...r})):[];
-   flagHistory=s.flagHistory&&typeof s.flagHistory==='object'?s.flagHistory:{};
-   histogramData=s.histogramData||JSON.parse(JSON.stringify(INITIAL_HISTOGRAM));
-   currentWeek=clean(s.currentWeek)||'PAES vigente';
+ if(st){
+   data=Array.isArray(st.data)?st.data.map(r=>({...r})):[];
+   breakData=Array.isArray(st.breakData)?st.breakData.map(r=>({...r})):[];
+   additionalData=Array.isArray(st.additionalData)?st.additionalData.map(r=>({...r})):[];
+   flagHistory=st.flagHistory&&typeof st.flagHistory==='object'?st.flagHistory:{};
+   histogramData=st.histogramData||JSON.parse(JSON.stringify(INITIAL_HISTOGRAM));
+   currentWeek=clean(st.currentWeek)||'PAES vigente';
  }
  const b=$('historicalModeBanner');if(b)b.style.display='none';
  activeKpiFilter='total';clearFilters();renderAll();showTab('dashboard');
 }
-function deleteHistory(name){const h=getHistory();delete h[name];localStorage.setItem('paes_history_v1',JSON.stringify(h));renderHistory()}
+async function deleteHistory(name){
+ if(!isDeveloper())return;
+ if(!confirm(`Excluir definitivamente ${name} do histórico online?`))return;
+ try{await apiRequest('history/'+encodeURIComponent(name),{method:'DELETE'});const h=historyCache();delete h[name];localStorage.setItem(HISTORY_CACHE_KEY,JSON.stringify(h));await refreshOnlineHistoryList()}catch(e){alert(e.message)}
+}
 
 
 function currentPaesNumber(){
@@ -2738,8 +2765,17 @@ $('file').addEventListener('change',async e=>{
   const previousWeek=clean(currentWeek);
   const isNewPaes=previousWeek&&previousWeek!=='PAES limpa'&&previousWeek!==importedWeek;
   if(isNewPaes){
-    // Arquiva a vigente ANTES de substituí-la pela nova importação.
-    saveCurrentToHistory();
+    // Congela a vigente no histórico ONLINE antes de qualquer substituição local.
+    // Se o arquivamento falhar, a nova PAES não entra.
+    setOnlineStatus(`Arquivando ${previousWeek}...`,'warn');
+    const archivedState=currentOnlineState();
+    archivedState.currentWeek=previousWeek;
+    try{
+      await apiRequest('history',{method:'POST',body:JSON.stringify({week:previousWeek,state:archivedState})});
+      setHistoryCache(previousWeek,{savedAt:new Date().toISOString(),state:archivedState});
+    }catch(e){
+      throw new Error(`A importação foi cancelada porque não foi possível arquivar ${previousWeek} no histórico online. ${e.message||''}`.trim());
+    }
   }
   HISTORICAL.active=false;HISTORICAL.name='';HISTORICAL.activeSnapshot=null;
   if($('historicalModeBanner'))$('historicalModeBanner').style.display='none';
