@@ -53,11 +53,17 @@ export default async (req) => {
       if(!['developer','bordo','pmb'].includes(user.role))return json({error:'Acesso somente para visualização.'},403);
       const body=await req.json();const w=clean(body?.week),state=body?.state;
       if(!w||!state||typeof state!=='object')return json({error:'Histórico inválido.'},400);
-      // Congelamento: não sobrescreve silenciosamente uma semana já arquivada.
+      // Congelamento idempotente: repetir uma importação interrompida é seguro
+      // quando o snapshot já arquivado é exatamente igual ao estado vigente.
+      const existing=await client.query('SELECT state,archived_at FROM paes_history WHERE week=$1',[w]);
+      if(existing.rows[0]){
+        const same=await client.query('SELECT $1::jsonb = $2::jsonb AS same',[JSON.stringify(existing.rows[0].state),JSON.stringify(state)]);
+        if(same.rows[0]?.same)return json({ok:true,week:w,archivedAt:existing.rows[0].archived_at,alreadyArchived:true});
+        return json({error:`${w} já existe no histórico online com conteúdo diferente. A importação foi interrompida para proteger o histórico.`},409);
+      }
       const q=await client.query(`INSERT INTO paes_history(week,state,archived_by,updated_by)
-        VALUES($1,$2::jsonb,$3,$3) ON CONFLICT (week) DO NOTHING RETURNING archived_at`,[w,JSON.stringify(state),user.login]);
-      if(!q.rows[0])return json({error:`${w} já existe no histórico online. A importação foi interrompida para evitar sobrescrita.`},409);
-      return json({ok:true,week:w,archivedAt:q.rows[0].archived_at});
+        VALUES($1,$2::jsonb,$3,$3) RETURNING archived_at`,[w,JSON.stringify(state),user.login]);
+      return json({ok:true,week:w,archivedAt:q.rows[0].archived_at,alreadyArchived:false});
     }
     if(req.method==='PUT'&&week){
       if(!isDeveloper(user))return json({error:'Somente o Desenvolvedor pode alterar uma carteira histórica.'},403);
