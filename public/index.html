@@ -893,6 +893,130 @@ function validateImportedDisciplines(rows){
  return unknown;
 }
 
+function newIntegrityId(i){
+ try{if(window.crypto&&crypto.randomUUID)return crypto.randomUUID()}catch(e){}
+ return `paes-${Date.now()}-${i}-${Math.random().toString(36).slice(2,9)}`;
+}
+function emptyIntegrityState(week=''){
+ return {version:1,week:clean(week),baseline:{},approved:{},audit:[]};
+}
+function integrityFieldLabel(k){
+ return {ordem:'Ordem',operacao:'Operação',aplat:'APLAT',centro:'Centro de trabalho / disciplina'}[k]||k;
+}
+function ensureIntegrityState(rows=data,source=integrityState,week=currentWeek){
+ if(!source||typeof source!=='object')source=emptyIntegrityState(week);
+ source.version=1;
+ source.week=clean(source.week)||clean(week);
+ source.baseline=source.baseline&&typeof source.baseline==='object'?source.baseline:{};
+ source.approved=source.approved&&typeof source.approved==='object'?source.approved:{};
+ source.audit=Array.isArray(source.audit)?source.audit:[];
+ (Array.isArray(rows)?rows:[]).forEach((r,i)=>{
+   if(!clean(r._integrityId))r._integrityId=newIntegrityId(i);
+   const id=r._integrityId;
+   if(!source.baseline[id]){
+     source.baseline[id]={};
+     INTEGRITY_PROTECTED_FIELDS.forEach(k=>source.baseline[id][k]=clean(r[k]));
+   }
+ });
+ integrityState=source;
+ return source;
+}
+function createIntegrityState(rows,week){
+ const st=emptyIntegrityState(week);
+ (Array.isArray(rows)?rows:[]).forEach((r,i)=>{
+   r._integrityId=newIntegrityId(i);
+   st.baseline[r._integrityId]={};
+   INTEGRITY_PROTECTED_FIELDS.forEach(k=>st.baseline[r._integrityId][k]=clean(r[k]));
+ });
+ integrityState=st;
+ return st;
+}
+function integrityExpectedValue(r,k){
+ ensureIntegrityState();
+ const id=r?._integrityId;
+ if(!id)return clean(r?.[k]);
+ const approved=integrityState.approved?.[id];
+ if(approved&&Object.prototype.hasOwnProperty.call(approved,k))return clean(approved[k]);
+ return clean(integrityState.baseline?.[id]?.[k]);
+}
+function integrityAudit(rowId,field,from,to,type='AUTHORIZED_CHANGE'){
+ integrityState.audit.push({
+   at:new Date().toISOString(),type,week:clean(currentWeek),rowId,
+   ordem:clean(data.find(r=>r._integrityId===rowId)?.ordem),field,
+   from:clean(from),to:clean(to),user:clean(currentAccessUser?.login||currentAccessUser?.name||'')
+ });
+ if(integrityState.audit.length>500)integrityState.audit=integrityState.audit.slice(-500);
+}
+function approveIntegrityChange(r,k,newValue){
+ ensureIntegrityState();
+ const id=r?._integrityId;if(!id)return;
+ const baseline=clean(integrityState.baseline?.[id]?.[k]);
+ const old=integrityExpectedValue(r,k);
+ const next=clean(newValue);
+ if(old===next)return;
+ integrityState.approved[id]=integrityState.approved[id]||{};
+ if(next===baseline){
+   delete integrityState.approved[id][k];
+   if(!Object.keys(integrityState.approved[id]).length)delete integrityState.approved[id];
+ }else integrityState.approved[id][k]=next;
+ integrityAudit(id,k,old,next,'AUTHORIZED_CHANGE');
+}
+function enforceIntegrityProtection(rows=data,{log=true}={}){
+ ensureIntegrityState(rows,integrityState,currentWeek);
+ let repaired=0;
+ (Array.isArray(rows)?rows:[]).forEach(r=>{
+   const id=r._integrityId;if(!id)return;
+   INTEGRITY_PROTECTED_FIELDS.forEach(k=>{
+     const expected=integrityExpectedValue(r,k),actual=clean(r[k]);
+     if(actual!==expected){
+       if(log)integrityAudit(id,k,actual,expected,'AUTO_RESTORE');
+       r[k]=expected;repaired++;
+     }
+   });
+ });
+ return repaired;
+}
+function integrityRowAuditCount(r){
+ const id=r?._integrityId;
+ return id?integrityState.audit.filter(a=>a.rowId===id&&a.type==='AUTHORIZED_CHANGE').length:0;
+}
+function integrityPanelHtml(r){
+ const canUnlock=INTEGRITY_PROTECTED_FIELDS.some(k=>canEditMainField(k));
+ const count=integrityRowAuditCount(r);
+ const status=editingIntegrityUnlocked?'🔓 Campos protegidos liberados apenas para esta edição.':'🔒 Ordem, Operação, APLAT e Centro de Trabalho protegidos contra alteração acidental.';
+ const button=canUnlock&&!editingIntegrityUnlocked?'<button type="button" class="light" onclick="unlockIntegrityFields()">Desbloquear dados importados</button>':'';
+ return `<div style="grid-column:1/-1;border:1px solid #d5e5dc;background:#f5fbf7;border-radius:12px;padding:12px 14px;margin-bottom:2px">
+   <div style="font-weight:800;color:#164b37">Controle de Integridade PAES</div>
+   <div style="font-size:12px;color:#52645c;margin:4px 0 8px">${status}</div>
+   ${button}${count?`<span style="font-size:11px;margin-left:8px;color:#7a5a15">${count} alteração(ões) autorizada(s) neste serviço</span>`:''}
+ </div>`;
+}
+function renderServiceDetails(r){
+ $('details').innerHTML=integrityPanelHtml(r)+Object.entries(labels).map(([k,l])=>{
+   let body;
+   const protectedField=INTEGRITY_PROTECTED_FIELDS.includes(k);
+   if(canEditMainField(k)&&(!protectedField||editingIntegrityUnlocked)){
+     body=allEditableControl(k,r);
+   }else{
+     const lock=protectedField?' 🔒':'';
+     body=`<span class="readonly-value locked-field">${escapeHtml((k==='data'||k==='dataFim')?formatDateBR(r[k])||'-':clean(r[k])||'-')}${lock}</span>`;
+   }
+   if(k==='justificativa'&&isNao(r.status)&&isQuebra(r))body+=`<div style="margin-top:7px;font-size:11px">${breakTooltipHtml(r)}</div>`;
+   return `<div class="detail"><small>${escapeHtml(l)}</small>${body}</div>`;
+ }).join('');
+}
+function unlockIntegrityFields(){
+ if(editingIndex===null||editingIndex<0)return;
+ const r=data[editingIndex];
+ if(!INTEGRITY_PROTECTED_FIELDS.some(k=>canEditMainField(k)))return;
+ const ok=confirm('Você está desbloqueando dados originais da importação da PAES. Use esta opção somente quando realmente desejar alterar Ordem, Operação, APLAT ou Centro de Trabalho. Continuar?');
+ if(!ok)return;
+ const draft={...r};
+ document.querySelectorAll('[data-edit]').forEach(el=>draft[el.dataset.edit]=el.value);
+ editingIntegrityUnlocked=true;
+ renderServiceDetails(draft);
+}
+
 let breakDeletionMode=false;
 let selectedBreakForDeletion=new Set();
 
@@ -939,6 +1063,9 @@ const $=id=>document.getElementById(id);
 const ACCESS_USERS_KEY='paes_access_users_v1';
 let currentAccessUser=null;
 const HISTORICAL={active:false,name:'',activeSnapshot:null};
+const INTEGRITY_PROTECTED_FIELDS=['ordem','operacao','aplat','centro'];
+let integrityState={version:1,week:'',baseline:{},approved:{},audit:[]};
+let editingIntegrityUnlocked=false;
 function isHistoricalMode(){return !!HISTORICAL.active}
 function historicalEditAllowed(){return !isHistoricalMode()||isDeveloper()}
 
@@ -1435,6 +1562,7 @@ function renderIndicadoresSemana(){
 }
 
 function renderAll(){
+ if(Array.isArray(data)&&data.length){ensureIntegrityState(data,integrityState,currentWeek);enforceIntegrityProtection(data,{log:true});}
  normalizeAllDatesToBR();
  normalizeFlagFields();
  autoArchiveFlagsIfNeeded();
@@ -1770,22 +1898,10 @@ function allEditableControl(k,r){
 }
 
 function openRow(i){
- editingIndex=i;const r=data[i];
+ editingIndex=i;editingIntegrityUnlocked=false;const r=data[i];
+ ensureIntegrityState();enforceIntegrityProtection(data,{log:true});
  $('serviceModalTitle').textContent='Detalhes completos do serviço';
-
- $('details').innerHTML=Object.entries(labels).map(([k,l])=>{
-   let body;
-   if(canEditMainField(k)){
-     body=allEditableControl(k,r);
-   }else{
-     body=`<span class="readonly-value locked-field">${escapeHtml((k==='data'||k==='dataFim')?formatDateBR(r[k])||'-':clean(r[k])||'-')}</span>`;
-   }
-   if(k==='justificativa'&&isNao(r.status)&&isQuebra(r)){
-     body+=`<div style="margin-top:7px;font-size:11px">${breakTooltipHtml(r)}</div>`;
-   }
-   return `<div class="detail"><small>${escapeHtml(l)}</small>${body}</div>`;
- }).join('');
-
+ renderServiceDetails(r);
  const saveBtn=$('serviceSaveBtn');
  if(saveBtn)saveBtn.style.display=canEditAnything()?'inline-flex':'none';
  $('modal').classList.add('open');
@@ -1798,27 +1914,43 @@ function saveEditedRow(){
  if(editingIndex===-1){
    r={};
    Object.keys(labels).forEach(k=>r[k]='');
- }else{
-   r=data[editingIndex];
+ }else r=data[editingIndex];
+
+ const proposal={...r};
+ document.querySelectorAll('[data-edit]').forEach(el=>proposal[el.dataset.edit]=el.value);
+ proposal.data=formatDateBR(proposal.data);
+ proposal.dataFim=formatDateBR(proposal.dataFim);
+ proposal.hh=parseFloat(String(proposal.hh).replace(',','.'))||0;
+ if(proposal.qtd!=='')proposal.qtd=String(parseInt(proposal.qtd,10)||0);
+ if(upper(proposal.reprogramar)!=='SIM')proposal.paes='';
+
+ if(editingIndex>=0){
+   ensureIntegrityState();
+   const protectedChanges=INTEGRITY_PROTECTED_FIELDS.filter(k=>canEditMainField(k)&&clean(proposal[k])!==integrityExpectedValue(r,k));
+   if(protectedChanges.length){
+     if(!editingIntegrityUnlocked){
+       alert('Os dados protegidos da importação não foram alterados. Use “Desbloquear dados importados” para uma alteração intencional.');
+       protectedChanges.forEach(k=>proposal[k]=integrityExpectedValue(r,k));
+     }else{
+       const desc=protectedChanges.map(k=>`${integrityFieldLabel(k)}: “${integrityExpectedValue(r,k)||'(vazio)'}” → “${clean(proposal[k])||'(vazio)'}”`).join('\n');
+       if(!confirm(`Confirme a alteração dos dados protegidos da PAES:\n\n${desc}\n\nEsta alteração ficará registrada no Controle de Integridade.`))return;
+       protectedChanges.forEach(k=>approveIntegrityChange(r,k,proposal[k]));
+     }
+   }
  }
 
- document.querySelectorAll('[data-edit]').forEach(el=>r[el.dataset.edit]=el.value);
- r.data=formatDateBR(r.data);
- r.dataFim=formatDateBR(r.dataFim);
- r.hh=parseFloat(String(r.hh).replace(',','.'))||0;
- if(r.qtd!=='')r.qtd=String(parseInt(r.qtd,10)||0);
- if(upper(r.reprogramar)!=='SIM')r.paes='';
-
+ Object.assign(r,proposal);
  if(editingIndex===-1){
    data.push(r);
+   ensureIntegrityState();
    if(!clean(currentWeek)&&clean(r.carteira))currentWeek=clean(r.carteira);
  }
-
+ enforceIntegrityProtection(data,{log:true});
  saveCurrentToHistory();
  renderAll();
  closeModal();
 }
-function closeModal(){editingIndex=null;$('modal').classList.remove('open')}
+function closeModal(){editingIndex=null;editingIntegrityUnlocked=false;$('modal').classList.remove('open')}
 
 
 function openExportUpdatesModal(){
@@ -1917,6 +2049,7 @@ const ACTIVE_PAES_KEY='paes_active_state_v1';
 function saveActivePaesState(){
  if(isHistoricalMode())return true;
  try{
+   enforceIntegrityProtection(data,{log:true});
    const state={
      version:1,
      savedAt:new Date().toISOString(),
@@ -1925,7 +2058,8 @@ function saveActivePaesState(){
      breakData:Array.isArray(breakData)?breakData:[],
      additionalData:Array.isArray(additionalData)?additionalData:[],
      flagHistory:flagHistory||{},
-     histogramData:histogramData||null
+     histogramData:histogramData||null,
+     integrity:integrityState
    };
    localStorage.setItem(ACTIVE_PAES_KEY,JSON.stringify(state));
    return true;
@@ -1947,6 +2081,8 @@ function loadActivePaesState(){
    flagHistory=state.flagHistory&&typeof state.flagHistory==='object'?state.flagHistory:{};
    histogramData=state.histogramData?JSON.parse(JSON.stringify(state.histogramData)):JSON.parse(JSON.stringify(INITIAL_HISTOGRAM));
    currentWeek=clean(state.currentWeek)||'PAES ativa';
+   integrityState=state.integrity&&typeof state.integrity==='object'?JSON.parse(JSON.stringify(state.integrity)):emptyIntegrityState(currentWeek);
+   ensureIntegrityState(data,integrityState,currentWeek);enforceIntegrityProtection(data,{log:false});
    normalizeAllDatesToBR();
    return true;
  }catch(e){
@@ -2056,10 +2192,10 @@ function confirmAdditionalAction(){
 }
 function additionalEditableControl(k,r){
  const v=clean(r[k]);
- if(k==='area')return selectHtml(k,v,['COMAN','COPROD']);
- if(k==='tipo')return selectHtml(k,v,['CORRETIVA','PREVENTIVA']);
- if(k==='if')return selectHtml(k,v,['1','2','3','4','5','6']);
- if(k==='centro')return selectHtml(k,v,FIXED_DISCIPLINES);
+ if(k==='area')return selectHtml(k,v,['COMAN','COPROD']).replaceAll('data-edit=','data-additional-edit=');
+ if(k==='tipo')return selectHtml(k,v,['CORRETIVA','PREVENTIVA']).replaceAll('data-edit=','data-additional-edit=');
+ if(k==='if')return selectHtml(k,v,['1','2','3','4','5','6']).replaceAll('data-edit=','data-additional-edit=');
+ if(k==='centro')return selectHtml(k,v,FIXED_DISCIPLINES).replaceAll('data-edit=','data-additional-edit=');
  if(k==='data')return `<select class="edit-field" data-additional-edit="data">${weekDateOptions(v)}</select>`;
  if(k==='dataFim')return `<select class="edit-field" data-additional-edit="dataFim">${weekDateOptions(v)}</select>`;
  if(k==='status')return selectHtml(k,canonicalStatus(v),['Em andamento','Executado Final - (OPERAÇÃO LIB CONF)','Executado PAES anterior','Executado Parcial - (JUSTIFICAR)','Não Executado - (JUSTIFICAR)']).replaceAll('data-edit=','data-additional-edit=');
@@ -2181,10 +2317,10 @@ let editingBreakIndex=null;
 
 function breakEditableControl(k,r){
  const v=clean(r[k]);
- if(k==='area')return selectHtml(k,v,['COMAN','COPROD']);
- if(k==='tipo')return selectHtml(k,v,['CORRETIVA','PREVENTIVA']);
- if(k==='if')return selectHtml(k,v,['1','2','3','4','5','6']);
- if(k==='centro')return selectHtml(k,v,FIXED_DISCIPLINES);
+ if(k==='area')return selectHtml(k,v,['COMAN','COPROD']).replaceAll('data-edit=','data-break-edit=');
+ if(k==='tipo')return selectHtml(k,v,['CORRETIVA','PREVENTIVA']).replaceAll('data-edit=','data-break-edit=');
+ if(k==='if')return selectHtml(k,v,['1','2','3','4','5','6']).replaceAll('data-edit=','data-break-edit=');
+ if(k==='centro')return selectHtml(k,v,FIXED_DISCIPLINES).replaceAll('data-edit=','data-break-edit=');
  if(k==='data')return `<select class="edit-field" data-break-edit="data">${weekDateOptions(v)}</select>`;
  if(k==='dataFim')return `<select class="edit-field" data-break-edit="dataFim">${weekDateOptions(v)}</select>`;
  if(k==='status')return selectHtml(k,canonicalStatus(v),['Em andamento','Executado Final - (OPERAÇÃO LIB CONF)','Executado PAES anterior','Executado Parcial - (JUSTIFICAR)','Não Executado - (JUSTIFICAR)']).replaceAll('data-edit=','data-break-edit=');
@@ -2483,6 +2619,8 @@ async function loadHistory(name){
    flagHistory=h.flagHistory&&typeof h.flagHistory==='object'?h.flagHistory:{};
    histogramData=h.histogramData?JSON.parse(JSON.stringify(h.histogramData)):JSON.parse(JSON.stringify(INITIAL_HISTOGRAM));
    currentWeek=name;
+   integrityState=h.integrity&&typeof h.integrity==='object'?JSON.parse(JSON.stringify(h.integrity)):emptyIntegrityState(name);
+   ensureIntegrityState(data,integrityState,name);enforceIntegrityProtection(data,{log:false});
    normalizeAllDatesToBR();activeKpiFilter='total';clearFilters();renderAll();showTab('dashboard');
    const b=$('historicalModeBanner'),t=$('historicalModeText');if(b)b.style.display='block';
    if(t)t.textContent=isDeveloper()?`HISTÓRICO • ${name} • Modo Desenvolvedor`:`🔒 HISTÓRICO • ${name} — Carteira arquivada. Qualquer alteração deve ser solicitada ao Desenvolvedor.`;
@@ -2500,6 +2638,8 @@ function exitHistoricalMode(){
    flagHistory=st.flagHistory&&typeof st.flagHistory==='object'?st.flagHistory:{};
    histogramData=st.histogramData||JSON.parse(JSON.stringify(INITIAL_HISTOGRAM));
    currentWeek=clean(st.currentWeek)||'PAES vigente';
+   integrityState=st.integrity&&typeof st.integrity==='object'?JSON.parse(JSON.stringify(st.integrity)):emptyIntegrityState(currentWeek);
+   ensureIntegrityState(data,integrityState,currentWeek);enforceIntegrityProtection(data,{log:false});
  }
  const b=$('historicalModeBanner');if(b)b.style.display='none';
  activeKpiFilter='total';clearFilters();renderAll();showTab('dashboard');
@@ -2520,7 +2660,7 @@ function buildPaesBackup(){
  return {
    type:'CARTEIRA_PAES_BACKUP',
    version:1,
-   appVersion:'3.3',
+   appVersion:'4.1.7.1',
    savedAt:new Date().toISOString(),
    currentWeek:currentWeek,
    paesNumber:currentPaesNumber(),
@@ -2528,7 +2668,8 @@ function buildPaesBackup(){
    breakRecords:breakData,
    additionalRecords:additionalData,
    flagHistory:flagHistory,
-   histogramData:histogramData
+   histogramData:histogramData,
+   integrity:integrityState
  };
 }
 
@@ -2542,6 +2683,7 @@ function clearPaesData(){
  flagHistory={};
  histogramData={semana:'',hhDia:8,totalDias:7,datas:[],linhas:[]};
  currentWeek='PAES limpa';
+ integrityState=emptyIntegrityState(currentWeek);
  activeKpiFilter='total';
  clearFilters();
  renderAll();
@@ -2612,6 +2754,8 @@ $('restoreFile').addEventListener('change',async e=>{
    flagHistory=backup.flagHistory&&typeof backup.flagHistory==='object'?backup.flagHistory:{};
    histogramData=backup.histogramData?JSON.parse(JSON.stringify(backup.histogramData)):JSON.parse(JSON.stringify(INITIAL_HISTOGRAM));
    currentWeek=clean(backup.currentWeek)||`CARTEIRA PAES S-${backup.paesNumber||''}`;
+   integrityState=backup.integrity&&typeof backup.integrity==='object'?JSON.parse(JSON.stringify(backup.integrity)):emptyIntegrityState(currentWeek);
+   ensureIntegrityState(data,integrityState,currentWeek);enforceIntegrityProtection(data,{log:false});
    activeKpiFilter='total';
 
    clearFilters();
@@ -2781,12 +2925,36 @@ $('file').addEventListener('change',async e=>{
       await apiRequest('history',{method:'POST',body:JSON.stringify({week:previousWeek,state:archivedState})});
       setHistoryCache(previousWeek,{savedAt:new Date().toISOString(),state:archivedState});
     }catch(e){
-      throw new Error(`A importação foi cancelada porque não foi possível arquivar ${previousWeek} no histórico online. ${e.message||''}`.trim());
+      // Se já existir um histórico diferente da semana vigente, o Desenvolvedor
+      // pode declarar explicitamente que o estado ONLINE atual é a versão final.
+      // O histórico é então atualizado antes de continuar a importação.
+      if(e?.status===409 && isDeveloper()){
+        const replace=confirm(
+          `${previousWeek} já existe no histórico online com conteúdo diferente da carteira que está vigente agora.
+
+`+
+          `Deseja considerar a carteira ONLINE atual como a versão FINAL de ${previousWeek}, substituir o histórico existente e continuar a importação?
+
+`+
+          `OK = substituir o histórico pela versão online atual e continuar.
+Cancelar = manter o histórico existente e interromper a importação.`
+        );
+        if(replace){
+          setOnlineStatus(`Atualizando histórico final de ${previousWeek}...`,'warn');
+          await apiRequest('history/'+encodeURIComponent(previousWeek),{method:'PUT',body:JSON.stringify({state:archivedState})});
+          setHistoryCache(previousWeek,{savedAt:new Date().toISOString(),state:archivedState});
+        }else{
+          throw new Error(`A importação foi cancelada para preservar o histórico existente de ${previousWeek}.`);
+        }
+      }else{
+        throw new Error(`A importação foi cancelada porque não foi possível arquivar ${previousWeek} no histórico online. ${e.message||''}`.trim());
+      }
     }
   }
   HISTORICAL.active=false;HISTORICAL.name='';HISTORICAL.activeSnapshot=null;
   if($('historicalModeBanner'))$('historicalModeBanner').style.display='none';
   data=parsed;
+  createIntegrityState(data,importedWeek);
   breakData=parseQuebraCarteiraSheet(wb);
   histogramData=parseHistogramaSheet(wb);
   if(previousWeek && previousWeek!=='PAES limpa' && previousWeek!==importedWeek){additionalData=[];flagHistory={};}
@@ -2881,15 +3049,17 @@ async function apiRequest(path,options={}){
  return payload;
 }
 function currentOnlineState(){
+ enforceIntegrityProtection(data,{log:true});
  return {
-   version:4,
+   version:5,
    savedAt:new Date().toISOString(),
    currentWeek,
    data:Array.isArray(data)?data:[],
    breakData:Array.isArray(breakData)?breakData:[],
    additionalData:Array.isArray(additionalData)?additionalData:[],
    flagHistory:flagHistory||{},
-   histogramData:histogramData||null
+   histogramData:histogramData||null,
+   integrity:integrityState
  };
 }
 function applyOnlineState(state,revision){
@@ -2902,6 +3072,8 @@ function applyOnlineState(state,revision){
    flagHistory=state.flagHistory&&typeof state.flagHistory==='object'?state.flagHistory:{};
    histogramData=state.histogramData||JSON.parse(JSON.stringify(INITIAL_HISTOGRAM));
    currentWeek=clean(state.currentWeek)||'PAES online';
+   integrityState=state.integrity&&typeof state.integrity==='object'?JSON.parse(JSON.stringify(state.integrity)):emptyIntegrityState(currentWeek);
+   ensureIntegrityState(data,integrityState,currentWeek);enforceIntegrityProtection(data,{log:false});
    ONLINE.revision=Number(revision||0);
    sessionStorage.setItem('paes_online_revision',String(ONLINE.revision));
    localStorage.setItem(ACTIVE_PAES_KEY,JSON.stringify(state));
